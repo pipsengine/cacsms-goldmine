@@ -248,10 +248,10 @@ export const lifecycleSnapshot: LifecycleSnapshot = {
   price: "2,425.36",
   priceChange: "+8.74 (0.36%)",
   accountMode: "Live Account",
-  progress: 78,
+  progress: 6,
   currentStageKey: "analyse",
   kpis: [
-    { label: "Lifecycle Progress", value: "72%", helper: "11 / 16 stages completed", tone: "violet", trend: [20, 29, 34, 43, 51, 60, 69, 78] },
+    { label: "Lifecycle Progress", value: "6%", helper: "0 / 17 stages verified complete", tone: "violet", trend: [0, 1, 2, 3, 4, 5, 6] },
     { label: "Active Workflows", value: "12", helper: "Running autonomous cycles", tone: "blue", trend: [5, 8, 6, 9, 8, 11, 10, 12] },
     { label: "Open Positions", value: "37", helper: "+24.3% XAUUSD", tone: "green", trend: [13, 16, 22, 21, 28, 31, 37] },
     { label: "Today's P&L", value: "+$18,742.50", helper: "Autonomous performance", tone: "green", trend: [2, 4, 3, 7, 9, 12, 11, 18] },
@@ -260,7 +260,6 @@ export const lifecycleSnapshot: LifecycleSnapshot = {
     { label: "System Health", value: "Excellent", helper: "All engines operational", tone: "green", trend: [92, 94, 96, 97, 98, 99] },
   ],
   stages: stageDefinitions.map(([key, name, group, summary], index) => {
-    const completed = index < 5;
     const active = key === "analyse";
     return {
       id: index + 1,
@@ -268,12 +267,12 @@ export const lifecycleSnapshot: LifecycleSnapshot = {
       name,
       group,
       summary,
-      status: completed ? "completed" : active ? "in-progress" : key === "stop" ? "not-started" : "pending",
-      progress: completed ? 100 : active ? 87 : 0,
+      status: active ? "in-progress" : key === "stop" ? "not-started" : "pending",
+      progress: active ? 87 : 0,
       startedAt: active ? "10:18 AM" : undefined,
       elapsed: active ? "00:06:32" : undefined,
       estimatedCompletion: active ? "00:03:28" : undefined,
-      readiness: active ? 87 : completed ? 100 : 0,
+      readiness: active ? 87 : 0,
       pages: (stagePages[key] ?? []).map(([id, title, description, href, status, icon]) => ({ id, title, description, href, status, icon })),
       inputs: stageInputs[key] ?? [],
       outputs: stageOutputs[key] ?? [],

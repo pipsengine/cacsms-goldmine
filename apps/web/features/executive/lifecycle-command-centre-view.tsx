@@ -193,13 +193,6 @@ export default function LifecycleCommandCentreView() {
             <h2>Trading System Lifecycle <span className={styles.infoDot}>i</span></h2>
             <p>Click on any stage to view its pages and manage the workflow</p>
           </div>
-          <div className={styles.lifecycleActions}>
-            <span>Auto-Advance</span><i />
-            <button className={styles.startButton}>5 Start</button>
-            <button className={styles.pauseButton}>Pause</button>
-            <button className={styles.stopButton}>Stop</button>
-            <button className={styles.detailsButton}>Lifecycle Details</button>
-          </div>
         </div>
 
         <div className={styles.groupRow}>{groups.map((group) => <span key={group}>{group}</span>)}</div>
@@ -213,7 +206,7 @@ export default function LifecycleCommandCentreView() {
                 <button
                   key={stage.key}
                   type="button"
-                  className={`${styles.stageButton} ${selected ? styles.stageSelected : ""}`}
+                  className={`${styles.stageButton} ${styles[`stage_${stage.status.replace("-", "_")}`]} ${selected ? styles.stageSelected : ""}`}
                   onClick={() => setSelectedStageKey(stage.key)}
                   aria-pressed={selected}
                 >

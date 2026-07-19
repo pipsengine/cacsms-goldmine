@@ -8,25 +8,29 @@ type Tick = {
   bid: number;
   ask: number;
   spread: number;
-  timestamp: string;
+  timestamp: string | null;
   source: "mt5" | "market-data" | "placeholder";
 };
 
 const lagosTimeZone = "Africa/Lagos";
+const defaultTick: Tick = {
+  symbol: "XAUUSD",
+  bid: 2425.36,
+  ask: 2425.52,
+  spread: 1.6,
+  timestamp: null,
+  source: "placeholder",
+};
+
+const initialSession = { label: "Syncing", detail: "Nigeria time", open: true };
 
 export function Topbar({ onOpenNavigation }: { onOpenNavigation: () => void }) {
-  const [now, setNow] = useState(() => new Date());
+  const [now, setNow] = useState<Date | null>(null);
   const [systemRunning, setSystemRunning] = useState(true);
-  const [tick, setTick] = useState<Tick>({
-    symbol: "XAUUSD",
-    bid: 2425.36,
-    ask: 2425.52,
-    spread: 1.6,
-    timestamp: new Date().toISOString(),
-    source: "placeholder",
-  });
+  const [tick, setTick] = useState<Tick>(defaultTick);
 
   useEffect(() => {
+    setNow(new Date());
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
@@ -61,30 +65,34 @@ export function Topbar({ onOpenNavigation }: { onOpenNavigation: () => void }) {
 
   const formattedDate = useMemo(
     () =>
-      new Intl.DateTimeFormat("en-NG", {
-        timeZone: lagosTimeZone,
-        weekday: "short",
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      }).format(now),
+      now
+        ? new Intl.DateTimeFormat("en-NG", {
+            timeZone: lagosTimeZone,
+            weekday: "short",
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+          }).format(now)
+        : "--",
     [now],
   );
 
   const formattedTime = useMemo(
     () =>
-      new Intl.DateTimeFormat("en-NG", {
-        timeZone: lagosTimeZone,
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: true,
-      }).format(now),
+      now
+        ? new Intl.DateTimeFormat("en-NG", {
+            timeZone: lagosTimeZone,
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: true,
+          }).format(now)
+        : "--",
     [now],
   );
 
-  const session = useMemo(() => getMarketSession(now), [now]);
-  const tickAge = Math.max(0, Math.round((Date.now() - new Date(tick.timestamp).getTime()) / 1000));
+  const session = useMemo(() => (now ? getMarketSession(now) : initialSession), [now]);
+  const tickAge = tick.timestamp ? `${Math.max(0, Math.round((Date.now() - new Date(tick.timestamp).getTime()) / 1000))}s` : "--";
 
   return (
     <header className="topbar" aria-label="System status topbar">
@@ -101,7 +109,7 @@ export function Topbar({ onOpenNavigation }: { onOpenNavigation: () => void }) {
         <div className="tick-tile" aria-live="polite">
           <span>Tick</span>
           <strong>{tick.symbol} {tick.bid.toFixed(2)} / {tick.ask.toFixed(2)}</strong>
-          <small>Spread {tick.spread.toFixed(1)} | {tick.source} | {tickAge}s</small>
+          <small>Spread {tick.spread.toFixed(1)} | {tick.source} | {tickAge}</small>
         </div>
         <button
           className={`system-toggle ${systemRunning ? "running" : "stopped"}`}

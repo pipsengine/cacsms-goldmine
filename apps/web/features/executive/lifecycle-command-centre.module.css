@@ -239,63 +239,6 @@
   font-size: 12px;
 }
 
-.lifecycleActions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 12px;
-}
-
-.lifecycleActions i {
-  position: relative;
-  width: 34px;
-  height: 19px;
-  border-radius: 999px;
-  background: #12af74;
-}
-
-.lifecycleActions i::after {
-  content: "";
-  position: absolute;
-  right: 3px;
-  top: 3px;
-  width: 13px;
-  height: 13px;
-  border-radius: 999px;
-  background: #fff;
-}
-
-.lifecycleActions button {
-  height: 34px;
-  border-radius: 8px;
-  padding: 0 16px;
-  font-weight: 800;
-}
-
-.startButton {
-  border: 1px solid var(--lcc-green);
-  background: var(--lcc-green);
-  color: #fff;
-}
-
-.pauseButton {
-  border: 1px solid #f5a11a;
-  background: #fff;
-  color: #f08a00;
-}
-
-.stopButton {
-  border: 1px solid var(--lcc-red);
-  background: var(--lcc-red);
-  color: #fff;
-}
-
-.detailsButton {
-  border: 1px solid #cfd8ec;
-  background: #fff;
-  color: var(--lcc-primary);
-}
-
 .groupRow {
   display: grid;
   grid-template-columns: 1.1fr 1.25fr .9fr 1fr 1.15fr 1.25fr;
@@ -325,6 +268,8 @@
 }
 
 .stageButton {
+  --stage-tone: #9aa8c2;
+  --stage-soft: rgba(154, 168, 194, .12);
   position: relative;
   min-width: 68px;
   padding: 0 5px 10px;
@@ -387,6 +332,33 @@
   font-size: 10px;
 }
 
+.stage_completed {
+  --stage-tone: var(--lcc-green);
+  --stage-soft: rgba(8, 167, 102, .12);
+}
+
+.stage_in_progress {
+  --stage-tone: var(--lcc-primary);
+  --stage-soft: rgba(75, 47, 244, .13);
+}
+
+.stage_pending {
+  --stage-tone: #8c9bb6;
+  --stage-soft: rgba(140, 155, 182, .13);
+}
+
+.stage_warning {
+  --stage-tone: var(--lcc-amber);
+  --stage-soft: rgba(245, 158, 11, .14);
+}
+
+.stage_blocked,
+.stage_failed,
+.stage_not_started {
+  --stage-tone: var(--lcc-red);
+  --stage-soft: rgba(239, 51, 75, .12);
+}
+
 .node_completed {
   border-color: var(--lcc-green);
   background: var(--lcc-green);
@@ -423,8 +395,17 @@
 .stageSelected {
   padding-top: 7px;
   border-radius: 15px;
-  background: linear-gradient(180deg, rgba(75, 47, 244, .1), rgba(75, 47, 244, .02));
-  box-shadow: inset 0 -3px 0 var(--lcc-primary);
+  background: linear-gradient(180deg, var(--stage-soft), rgba(255, 255, 255, .02));
+  box-shadow: inset 0 -3px 0 var(--stage-tone);
+}
+
+.stageSelected .stageNumber {
+  border-color: color-mix(in srgb, var(--stage-tone) 40%, #ffffff);
+  color: var(--stage-tone);
+}
+
+.stageSelected strong {
+  color: var(--stage-tone);
 }
 
 .lifecycleFooter {

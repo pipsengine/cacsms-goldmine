@@ -6,9 +6,7 @@ import {
   Brain,
   CandlestickChart,
   CheckCircle2,
-  CirclePause,
   CirclePlay,
-  CircleStop,
   Clock,
   Database,
   Gauge,
@@ -17,7 +15,6 @@ import {
   Pause,
   RefreshCw,
   ShieldCheck,
-  Siren,
   Target,
   TrendingUp,
   Zap,
@@ -105,21 +102,16 @@ export function SystemControlBar() {
     <section className="section control-bar" aria-label="Autonomous system controls">
       <div>
         <h2>Autonomous Lifecycle Controls</h2>
-        <p>Current state is Running. Stop policy is controlled shutdown unless emergency protection is confirmed.</p>
+        <p>Current state is Running. System start and stop are controlled from the global top bar.</p>
         <div className="metadata" style={{ marginTop: 10 }}>
           <span className="pill success">Loop active</span>
           <span className="pill warning">Pre-news restriction active</span>
         </div>
       </div>
       <div className="control-actions">
-        <button className="control-button gold"><CirclePlay size={17} /> Start</button>
         <button className="control-button warning"><Pause size={17} /> Pause</button>
         <button className="control-button success" disabled><CirclePlay size={17} /> Resume</button>
-        <button className="control-button"><CirclePause size={17} /> Controlled Stop</button>
-        <button className="control-button danger"><CircleStop size={17} /> Close and Stop</button>
-        <button className="control-button danger" aria-describedby="destructive-stop"><Siren size={17} /> Emergency Stop</button>
       </div>
-      <p id="destructive-stop" className="kpi-detail">Destructive stop actions require confirmation before execution.</p>
     </section>
   );
 }
