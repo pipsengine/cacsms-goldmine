@@ -1,0 +1,1 @@
+export { GoldPriceCard } from "./components";
