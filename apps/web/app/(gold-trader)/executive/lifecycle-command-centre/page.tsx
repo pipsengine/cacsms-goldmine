@@ -1,5 +1,5 @@
-import { OperationalPage } from "@/components/ui/operational-page";
+import LifecycleCommandCentreView from "@/features/executive/lifecycle-command-centre-view";
 
 export default function Page() {
-  return <OperationalPage route="/executive/lifecycle-command-centre" />;
+  return <LifecycleCommandCentreView />;
 }

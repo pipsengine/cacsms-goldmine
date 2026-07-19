@@ -1,57 +1,159 @@
 "use client";
 
-import { Bell, CircleUserRound, Command, Menu, RefreshCw } from "lucide-react";
-import { CommandPalette } from "./command-palette";
-import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
-import { currentLifecycleStage, lifecycleStages } from "@/config/lifecycle";
-import { getNavigationAncestors, getNavigationItemByRoute } from "@/config/navigation";
+import { Menu, Power, UserCircle } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+
+type Tick = {
+  symbol: string;
+  bid: number;
+  ask: number;
+  spread: number;
+  timestamp: string;
+  source: "mt5" | "market-data" | "placeholder";
+};
+
+const lagosTimeZone = "Africa/Lagos";
 
 export function Topbar({ onOpenNavigation }: { onOpenNavigation: () => void }) {
-  const [open, setOpen] = useState(false);
-  const pathname = usePathname();
-  const currentItem = getNavigationItemByRoute(pathname);
-  const crumbs = currentItem ? [...getNavigationAncestors(currentItem), currentItem] : [];
-  const lifecycle = lifecycleStages[currentLifecycleStage];
+  const [now, setNow] = useState(() => new Date());
+  const [systemRunning, setSystemRunning] = useState(true);
+  const [tick, setTick] = useState<Tick>({
+    symbol: "XAUUSD",
+    bid: 2425.36,
+    ask: 2425.52,
+    spread: 1.6,
+    timestamp: new Date().toISOString(),
+    source: "placeholder",
+  });
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setOpen(true);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    const loadTick = async () => {
+      try {
+        const response = await fetch("/api/market-data/tick", { cache: "no-store" });
+        if (!response.ok) return;
+        const nextTick = (await response.json()) as Tick;
+        if (active) setTick(nextTick);
+      } catch {
+        if (active) {
+          setTick((current) => ({
+            ...current,
+            timestamp: new Date().toISOString(),
+            source: "placeholder",
+          }));
+        }
+      }
+    };
+
+    void loadTick();
+    const timer = window.setInterval(loadTick, 1000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const formattedDate = useMemo(
+    () =>
+      new Intl.DateTimeFormat("en-NG", {
+        timeZone: lagosTimeZone,
+        weekday: "short",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }).format(now),
+    [now],
+  );
+
+  const formattedTime = useMemo(
+    () =>
+      new Intl.DateTimeFormat("en-NG", {
+        timeZone: lagosTimeZone,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+      }).format(now),
+    [now],
+  );
+
+  const session = useMemo(() => getMarketSession(now), [now]);
+  const tickAge = Math.max(0, Math.round((Date.now() - new Date(tick.timestamp).getTime()) / 1000));
+
   return (
-    <header className="topbar">
+    <header className="topbar" aria-label="System status topbar">
       <div className="topbar-left">
-        <button className="icon-button mobile-only" onClick={onOpenNavigation} aria-label="Open navigation"><Menu size={18} /></button>
-        <div className="topbar-context">
-          <nav className="breadcrumb" aria-label="Current location">
-            {crumbs.length ? crumbs.slice(-3).map((crumb) => <span key={crumb.id}>{crumb.label}</span>) : <span>Executive Command Centre</span>}
-          </nav>
-          <div className="topbar-centre">
-            <span className="pill gold">Lifecycle: {lifecycle.label}</span>
-            <span>Current action: Evaluating H8 sell-side liquidity sweep</span>
-            <span className="pill info">Limited mode</span>
-          </div>
-        </div>
-        <button className="search-button" onClick={() => setOpen(true)}><Command size={16} /> Command palette <span className="pill">Ctrl K</span></button>
+        <button className="icon-button mobile-only" onClick={onOpenNavigation} aria-label="Open navigation">
+          <Menu size={18} />
+        </button>
+        <StatusTile label="Date" value={formattedDate} />
+        <StatusTile label="Time" value={formattedTime} subValue="Nigeria" />
+        <StatusTile label="Market Session" value={session.label} tone={session.open ? "success" : "warning"} subValue={session.detail} />
       </div>
+
       <div className="topbar-right">
-        <span className="pill gold">XAUUSD</span>
-        <span className="pill success">MT5 Connected</span>
-        <span className="pill success">Broker Ready</span>
-        <span className="pill">London Session</span>
-        <span className="pill">Updated 4 sec ago</span>
-        <button className="icon-button" aria-label="Refresh status" title="Refresh status"><RefreshCw size={16} /></button>
-        <button className="icon-button" aria-label="Notifications" title="Notifications"><Bell size={16} /></button>
-        <button className="icon-button" aria-label="User menu placeholder" title="User menu placeholder"><CircleUserRound size={17} /></button>
+        <div className="tick-tile" aria-live="polite">
+          <span>Tick</span>
+          <strong>{tick.symbol} {tick.bid.toFixed(2)} / {tick.ask.toFixed(2)}</strong>
+          <small>Spread {tick.spread.toFixed(1)} | {tick.source} | {tickAge}s</small>
+        </div>
+        <button
+          className={`system-toggle ${systemRunning ? "running" : "stopped"}`}
+          onClick={() => setSystemRunning((value) => !value)}
+          aria-pressed={systemRunning}
+        >
+          <Power size={16} />
+          {systemRunning ? "Stop" : "Start"}
+        </button>
+        <div className="user-profile" role="button" tabIndex={0} aria-label="User profile">
+          <UserCircle size={28} />
+          <span>
+            <strong>Alex Ogbaisi</strong>
+            <small>Super Administrator</small>
+          </span>
+        </div>
       </div>
-      {open ? <CommandPalette onClose={() => setOpen(false)} /> : null}
     </header>
   );
+}
+
+function StatusTile({ label, value, subValue, tone }: { label: string; value: string; subValue?: string; tone?: "success" | "warning" }) {
+  return (
+    <div className={`system-status-tile ${tone ?? ""}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {subValue ? <small>{subValue}</small> : null}
+    </div>
+  );
+}
+
+function getMarketSession(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: lagosTimeZone,
+    weekday: "short",
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  }).formatToParts(date);
+
+  const weekday = parts.find((part) => part.type === "weekday")?.value ?? "Sun";
+  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? "0");
+  const minute = Number(parts.find((part) => part.type === "minute")?.value ?? "0");
+  const minutes = hour * 60 + minute;
+
+  if (weekday === "Sat" || weekday === "Sun") {
+    return { label: "Market Closed", detail: "Weekend", open: false };
+  }
+
+  if (minutes >= 13 * 60 && minutes < 17 * 60) return { label: "London-New York Overlap", detail: "High liquidity", open: true };
+  if (minutes >= 8 * 60 && minutes < 17 * 60) return { label: "London Session", detail: "Open", open: true };
+  if (minutes >= 13 * 60 && minutes < 22 * 60) return { label: "New York Session", detail: "Open", open: true };
+  if (minutes >= 0 && minutes < 9 * 60) return { label: "Asian Session", detail: "Open", open: true };
+  return { label: "Between Sessions", detail: "Low liquidity", open: true };
 }
