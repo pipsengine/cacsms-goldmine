@@ -28,6 +28,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { LifecycleControlResponse, LifecycleRuntime } from "@/types/lifecycle-control";
 import type { StartInitializeHandoff, StartInitializeHandoffResponse } from "@/types/platform-readiness-handoff";
 import styles from "./initialize-page.module.css";
 
@@ -69,6 +70,7 @@ export function InitializePage() {
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [handoff, setHandoff] = useState<StartInitializeHandoff | null>(null);
+  const [runtime, setRuntime] = useState<LifecycleRuntime | null>(null);
   const [handoffStatus, setHandoffStatus] = useState<"loading" | "received" | "absent" | "error">("loading");
   const timers = useRef<number[]>([]);
   const retryRef = useRef(90);
@@ -98,13 +100,19 @@ export function InitializePage() {
 
   const refreshHandoff = useCallback(async () => {
     try {
-      const response = await fetch("/api/platform-readiness/handoff/start-initialize", { cache: "no-store", headers: { Accept: "application/json" } });
-      if (!response.ok) throw new Error(`Handoff request failed with ${response.status}`);
-      const payload = await response.json() as StartInitializeHandoffResponse;
+      const [handoffResponse, runtimeResponse] = await Promise.all([
+        fetch("/api/platform-readiness/handoff/start-initialize", { cache: "no-store", headers: { Accept: "application/json" } }),
+        fetch("/api/lifecycle-control", { cache: "no-store", headers: { Accept: "application/json" } }),
+      ]);
+      if (!handoffResponse.ok || !runtimeResponse.ok) throw new Error("Lifecycle state request failed");
+      const payload = await handoffResponse.json() as StartInitializeHandoffResponse;
+      const lifecycle = await runtimeResponse.json() as LifecycleControlResponse;
       setHandoff(payload.handoff);
+      setRuntime(lifecycle.runtime);
       setHandoffStatus(payload.handoff ? "received" : "absent");
     } catch {
       setHandoff(null);
+      setRuntime(null);
       setHandoffStatus("error");
     }
   }, []);
@@ -112,10 +120,15 @@ export function InitializePage() {
   useEffect(() => {
     void refreshHandoff();
     const pollTimer = window.setInterval(refreshHandoff, 3000);
-    return () => window.clearInterval(pollTimer);
+    const handleRuntimeUpdate = () => void refreshHandoff();
+    window.addEventListener("lifecycle-runtime-updated", handleRuntimeUpdate);
+    return () => {
+      window.clearInterval(pollTimer);
+      window.removeEventListener("lifecycle-runtime-updated", handleRuntimeUpdate);
+    };
   }, [refreshHandoff]);
 
-  const handoffAuthorized = Boolean(handoff && handoff.decision === "AUTHORIZED" && Date.parse(handoff.expiresAt) > Date.now());
+  const handoffAuthorized = Boolean(runtime?.status === "running" && runtime.currentStage === "initialize" && handoff && handoff.decision === "AUTHORIZED" && Date.parse(handoff.expiresAt) > Date.now());
   const authorizedHandoffId = handoffAuthorized ? handoff?.handoffId ?? null : null;
 
   useEffect(() => {
@@ -124,7 +137,7 @@ export function InitializePage() {
       timers.current = [];
       setRunning(false);
       setSteps((current) => current.map((step) => ({ ...step, status: "blocked" })));
-      setMessage(handoffStatus === "loading" ? null : handoff?.decision === "HOLD" ? `START handoff ${handoff.correlationId} was received with HOLD. INITIALIZE will not execute until START publishes complete production evidence.` : "No valid START authorization handoff is available. INITIALIZE remains fail-closed and continues monitoring automatically.");
+      setMessage(handoffStatus === "loading" ? null : runtime?.status === "stopped" ? "The Trading System Lifecycle is stopped. INITIALIZE execution is disabled until the top-bar Start control begins a new autonomous lifecycle." : handoff?.decision === "HOLD" ? `START handoff ${handoff.correlationId} was received with HOLD. INITIALIZE will not execute until START publishes complete production evidence.` : "No valid START authorization handoff is available. INITIALIZE remains fail-closed and continues monitoring automatically.");
       return;
     }
     runInitialization();
@@ -137,7 +150,7 @@ export function InitializePage() {
       window.clearInterval(retryTimer);
       timers.current.forEach(window.clearTimeout);
     };
-  }, [authorizedHandoffId, handoff?.correlationId, handoff?.decision, handoffStatus, runInitialization]);
+  }, [authorizedHandoffId, handoff?.correlationId, handoff?.decision, handoffStatus, runInitialization, runtime?.status]);
 
   const counts = useMemo(() => ({
     ready: steps.filter((step) => step.status === "ready").length,
@@ -164,7 +177,7 @@ export function InitializePage() {
       </header>
 
       <section className={`${styles.handoffGate} ${handoffAuthorized ? styles.handoffAuthorized : ""}`}>
-        <div className={styles.handoffIdentity}>{handoffAuthorized ? <CheckCircle2 size={20} /> : <LockKeyhole size={20} />}<span><small>STAGE 1 → STAGE 2 HANDOFF</small><strong>{handoffStatus === "loading" ? "Loading START evidence" : handoffStatus === "error" ? "Handoff channel unavailable" : handoffStatus === "absent" ? "No START handoff published" : `${handoff?.decision} · sequence ${handoff?.sequence}`}</strong></span></div>
+        <div className={styles.handoffIdentity}>{handoffAuthorized ? <CheckCircle2 size={20} /> : <LockKeyhole size={20} />}<span><small>STAGE 1 → STAGE 2 HANDOFF</small><strong>{handoffStatus === "loading" ? "Loading START evidence" : handoffStatus === "error" ? "Handoff channel unavailable" : runtime?.status === "stopped" ? "Lifecycle stopped" : handoffStatus === "absent" ? "No START handoff published" : `${runtime?.status.toUpperCase()} · ${handoff?.decision} · sequence ${handoff?.sequence}`}</strong></span></div>
         <div className={styles.handoffInputs}><span><small>Operating mode</small><b>{handoff?.inputs.operatingMode.state ?? "unavailable"}</b></span><span><small>Trading profile</small><b>{handoff?.inputs.tradingProfile.state ?? "unavailable"}</b></span><span><small>Risk profile</small><b>{handoff?.inputs.riskProfile.state ?? "unavailable"}</b></span><span><small>Checklist</small><b>{handoff ? `${handoff.inputs.checklist.passed}/${handoff.inputs.checklist.required} required passed` : "not received"}</b></span></div>
         <div className={styles.handoffAudit}><small>Correlation ID</small><strong>{handoff?.correlationId ?? "Not issued"}</strong><span>{handoff ? `SHA-256 ${handoff.integrity.digest.slice(0, 12)}…` : "Integrity pending"}</span></div>
       </section>

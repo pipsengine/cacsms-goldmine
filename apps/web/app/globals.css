@@ -138,6 +138,9 @@ button { cursor: pointer; }
   border-color: rgba(22, 163, 74, .24);
   color: var(--success);
 }
+.system-toggle:disabled { cursor: wait; opacity: .72; }
+.control-spinner { animation: control-spin .8s linear infinite; }
+@keyframes control-spin { to { transform: rotate(360deg); } }
 .user-profile {
   grid-template-columns: auto 1fr;
   align-items: center;

@@ -1,8 +1,5 @@
-import { lifecycleSnapshot } from "@/features/executive/lifecycle-command-centre-data";
+import { getControlledLifecycleSnapshot } from "@/lib/server/lifecycle-snapshot";
 
 export async function GET() {
-  return Response.json({
-    ...lifecycleSnapshot,
-    updatedAt: new Date().toISOString(),
-  });
+  return Response.json(getControlledLifecycleSnapshot());
 }

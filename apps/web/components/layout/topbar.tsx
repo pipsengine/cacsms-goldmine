@@ -1,7 +1,8 @@
 "use client";
 
-import { Menu, Power, UserCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Menu, Power, RefreshCw, UserCircle } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { LifecycleControlResponse, LifecycleRuntime } from "@/types/lifecycle-control";
 
 type Tick = {
   symbol: string;
@@ -26,8 +27,30 @@ const initialSession = { label: "Syncing", detail: "Nigeria time", open: true };
 
 export function Topbar({ onOpenNavigation }: { onOpenNavigation: () => void }) {
   const [now, setNow] = useState<Date | null>(null);
-  const [systemRunning, setSystemRunning] = useState(true);
+  const [runtime, setRuntime] = useState<LifecycleRuntime | null>(null);
+  const [commandPending, setCommandPending] = useState(false);
+  const [commandError, setCommandError] = useState<string | null>(null);
   const [tick, setTick] = useState<Tick>(defaultTick);
+
+  const refreshRuntime = useCallback(async () => {
+    try {
+      const response = await fetch("/api/lifecycle-control", { cache: "no-store", headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error(`Lifecycle state failed with ${response.status}`);
+      const payload = await response.json() as LifecycleControlResponse;
+      setRuntime(payload.runtime);
+      setCommandError(null);
+    } catch {
+      setCommandError("Lifecycle control channel unavailable");
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshRuntime();
+    const timer = window.setInterval(refreshRuntime, 2000);
+    const onRuntimeUpdate = () => void refreshRuntime();
+    window.addEventListener("lifecycle-runtime-updated", onRuntimeUpdate);
+    return () => { window.clearInterval(timer); window.removeEventListener("lifecycle-runtime-updated", onRuntimeUpdate); };
+  }, [refreshRuntime]);
 
   useEffect(() => {
     setNow(new Date());
@@ -93,6 +116,29 @@ export function Topbar({ onOpenNavigation }: { onOpenNavigation: () => void }) {
 
   const session = useMemo(() => (now ? getMarketSession(now) : initialSession), [now]);
   const tickAge = tick.timestamp ? `${Math.max(0, Math.round((Date.now() - new Date(tick.timestamp).getTime()) / 1000))}s` : "--";
+  const systemActive = runtime ? runtime.status !== "stopped" && runtime.status !== "error" : false;
+
+  const commandSystem = async () => {
+    if (commandPending) return;
+    setCommandPending(true);
+    setCommandError(null);
+    try {
+      const response = await fetch("/api/lifecycle-control", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ command: systemActive ? "STOP" : "START" }),
+      });
+      if (!response.ok) throw new Error(`Lifecycle command failed with ${response.status}`);
+      const payload = await response.json() as LifecycleControlResponse;
+      setRuntime(payload.runtime);
+      window.dispatchEvent(new Event("lifecycle-runtime-updated"));
+    } catch {
+      setCommandError("Lifecycle command failed safely");
+    } finally {
+      setCommandPending(false);
+    }
+  };
 
   return (
     <header className="topbar" aria-label="System status topbar">
@@ -112,12 +158,15 @@ export function Topbar({ onOpenNavigation }: { onOpenNavigation: () => void }) {
           <small>Spread {tick.spread.toFixed(1)} | {tick.source} | {tickAge}</small>
         </div>
         <button
-          className={`system-toggle ${systemRunning ? "running" : "stopped"}`}
-          onClick={() => setSystemRunning((value) => !value)}
-          aria-pressed={systemRunning}
+          className={`system-toggle ${systemActive ? "running" : "stopped"}`}
+          onClick={commandSystem}
+          aria-pressed={systemActive}
+          aria-label={`${systemActive ? "Stop" : "Start"} Trading System Lifecycle`}
+          disabled={commandPending || !runtime}
+          title={commandError ?? runtime?.reason ?? "Loading lifecycle control state"}
         >
-          <Power size={16} />
-          {systemRunning ? "Stop" : "Start"}
+          {commandPending || !runtime ? <RefreshCw className="control-spinner" size={16} /> : <Power size={16} />}
+          {commandPending ? "Working" : systemActive ? "Stop" : "Start"}
         </button>
         <div className="user-profile" role="button" tabIndex={0} aria-label="User profile">
           <UserCircle size={28} />

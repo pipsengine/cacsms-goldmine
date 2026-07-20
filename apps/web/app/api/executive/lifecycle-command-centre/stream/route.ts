@@ -1,22 +1,36 @@
-import { lifecycleSnapshot } from "@/features/executive/lifecycle-command-centre-data";
+import { getControlledLifecycleSnapshot } from "@/lib/server/lifecycle-snapshot";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   const encoder = new TextEncoder();
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let closed = false;
 
   const stream = new ReadableStream({
     start(controller) {
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        if (timer) clearInterval(timer);
+        try { controller.close(); } catch { /* The client may already have closed the stream. */ }
+      };
       const send = () => {
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ ...lifecycleSnapshot, updatedAt: new Date().toISOString() })}\n\n`),
-        );
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(getControlledLifecycleSnapshot())}\n\n`));
+        } catch {
+          close();
+        }
       };
 
       send();
-      const timer = setInterval(send, 15000);
-
-      return () => clearInterval(timer);
+      timer = setInterval(send, 15000);
+      request.signal.addEventListener("abort", close, { once: true });
+    },
+    cancel() {
+      closed = true;
+      if (timer) clearInterval(timer);
     },
   });
 

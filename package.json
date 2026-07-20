@@ -7,6 +7,7 @@
     "build": "npm --workspace apps/web run build",
     "lint": "npm --workspace apps/web run lint",
     "test:handoff": "npm --workspace apps/web run test:handoff",
+    "test:lifecycle-control": "npm --workspace apps/web run test:lifecycle-control",
     "typecheck": "npm --workspace apps/web run typecheck",
     "api:dev": "npm --workspace apps/api run dev",
     "verify": "npm run typecheck && npm run lint"

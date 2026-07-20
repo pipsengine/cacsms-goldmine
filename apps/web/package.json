@@ -7,6 +7,7 @@
     "build": "next build",
     "lint": "eslint .",
     "test:handoff": "node scripts/test-start-initialize-handoff.mjs",
+    "test:lifecycle-control": "node scripts/test-lifecycle-control.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
