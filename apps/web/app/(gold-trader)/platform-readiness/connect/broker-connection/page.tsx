@@ -1,5 +1,5 @@
-import { OperationalPage } from "@/components/ui/operational-page";
+import { BrokerConnectionPage } from "@/components/platform-readiness/broker-connection-page";
 
 export default function Page() {
-  return <OperationalPage route="/platform-readiness/connect/broker-connection" />;
+  return <BrokerConnectionPage />;
 }

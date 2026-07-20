@@ -1,5 +1,5 @@
-import { OperationalPage } from "@/components/ui/operational-page";
+import { Mt5BridgePage } from "@/components/platform-readiness/mt5-bridge-page";
 
 export default function Page() {
-  return <OperationalPage route="/platform-readiness/connect/mt5-bridge" />;
+  return <Mt5BridgePage />;
 }
