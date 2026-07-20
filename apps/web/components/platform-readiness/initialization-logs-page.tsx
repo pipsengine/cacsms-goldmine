@@ -1,0 +1,62 @@
+"use client";
+
+import { AlertTriangle, Bot, CheckCircle2, ChevronRight, Circle, Clock3, Copy, Database, FileCheck2, FileClock, Fingerprint, Info, KeyRound, ListFilter, LockKeyhole, RefreshCw, ScrollText, Search, ShieldCheck, TerminalSquare, XCircle } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import styles from "./initialization-logs-page.module.css";
+
+type Level="info"|"warning"|"error"|"security";
+type AuditEvent={id:string;offset:string;level:Level;source:string;event:string;message:string;decision:string;correlation:string;evidence:string};
+const templates:Omit<AuditEvent,"id"|"correlation">[]=[
+  {offset:"00:00:00.000",level:"info",source:"lifecycle.orchestrator",event:"cycle.opened",message:"Autonomous initialization cycle created.",decision:"CONTINUE",evidence:"Local control event"},
+  {offset:"00:00:00.184",level:"info",source:"configuration.resolver",event:"registry.requested",message:"Signed production manifest set requested.",decision:"AWAIT",evidence:"Adapter request"},
+  {offset:"00:00:00.652",level:"error",source:"configuration.resolver",event:"registry.unavailable",message:"No signed production configuration response received.",decision:"REJECT",evidence:"Missing production response"},
+  {offset:"00:00:00.839",level:"warning",source:"dependency.resolver",event:"downstream.held",message:"Engine, agent, and service initialization paths placed on HOLD.",decision:"HOLD",evidence:"Dependency propagation"},
+  {offset:"00:00:01.027",level:"security",source:"policy.guard",event:"fallback.denied",message:"Default configuration and synthetic readiness fallback prohibited.",decision:"DENY",evidence:"Fail-closed policy"},
+  {offset:"00:00:01.214",level:"info",source:"audit.sealer",event:"cycle.sealed",message:"Cycle outcome, evidence references, and retry schedule sealed.",decision:"RETRY",evidence:"Local audit seal"},
+];
+
+export function InitializationLogsPage(){
+  const[events,setEvents]=useState<AuditEvent[]>([]);const[selected,setSelected]=useState<string>("");const[level,setLevel]=useState<"all"|Level>("all");const[query,setQuery]=useState("");const[cycle,setCycle]=useState(0);const[retryIn,setRetryIn]=useState(90);const[streaming,setStreaming]=useState(false);const timers=useRef<number[]>([]);const retryRef=useRef(90);const cycleRef=useRef(0);
+  const run=useCallback(()=>{timers.current.forEach(window.clearTimeout);timers.current=[];retryRef.current=90;setRetryIn(90);setStreaming(true);const next=cycleRef.current+1;cycleRef.current=next;setCycle(next);templates.forEach((template,index)=>{const timer=window.setTimeout(()=>{const event={...template,id:`C${String(next).padStart(3,"0")}-${String(index+1).padStart(3,"0")}`,correlation:`init-cycle-${String(next).padStart(4,"0")}`};setEvents(currentEvents=>currentEvents.some(currentEvent=>currentEvent.id===event.id)?currentEvents:[event,...currentEvents].slice(0,60));setSelected(currentSelected=>currentSelected||event.id);if(index===templates.length-1)setStreaming(false)},index*180);timers.current.push(timer)})},[]);
+  useEffect(()=>{run();const interval=window.setInterval(()=>{const next=retryRef.current-1;if(next<=0)run();else{retryRef.current=next;setRetryIn(next)}},1000);return()=>{window.clearInterval(interval);timers.current.forEach(window.clearTimeout)}},[run]);
+  const filtered=useMemo(()=>{const seen=new Set<string>();return events.filter(event=>{if(seen.has(event.id))return false;seen.add(event.id);return(level==="all"||event.level===level)&&(!query||`${event.source} ${event.event} ${event.message} ${event.decision}`.toLowerCase().includes(query.toLowerCase()))})},[events,level,query]);
+  const selectedEvent=events.find(event=>event.id===selected)??filtered[0];const counts=useMemo(()=>({error:events.filter(e=>e.level==="error").length,warning:events.filter(e=>e.level==="warning").length,security:events.filter(e=>e.level==="security").length,info:events.filter(e=>e.level==="info").length}),[events]);
+  return <main className={styles.page}>
+    <nav className={styles.breadcrumb}><a href="/platform-readiness">Platform Readiness</a><ChevronRight size={13}/><a href="/platform-readiness/initialize">Initialize</a><ChevronRight size={13}/><strong>Initialization Logs</strong></nav>
+    <header className={styles.heading}><div className={styles.title}><span><ScrollText size={25}/></span><div><small>INITIALIZE · CONTROL GROUP 06</small><h1>Initialization Logs</h1><p>Immutable control events, evidence references, decisions, and autonomous retry history.</p></div></div><div className={styles.stream}><i className={streaming?styles.pulse:""}/><span><small>AUDIT STREAM</small><strong>{streaming?"RECEIVING EVENTS":`FOLLOWING · RETRY ${retryIn}S`}</strong></span></div></header>
+
+    <section className={styles.integrityBar}><div><ShieldCheck size={19}/><span><small>LEDGER INTEGRITY</small><strong>LOCAL CHAIN ACTIVE · PRODUCTION SINK UNAVAILABLE</strong></span></div><p>Control events shown here are generated by the active initialization workflow. No production audit records are fabricated.</p><div className={styles.counters}><span><b>{events.length}</b>Events</span><span><b>{counts.error}</b>Errors</span><span><b>{counts.warning}</b>Warnings</span><span><b>{cycle}</b>Cycles</span></div></section>
+
+    <section className={styles.console}>
+      <header className={styles.consoleToolbar}><div className={styles.consoleTitle}><TerminalSquare size={17}/><span><strong>Initialization Event Stream</strong><small>Local control channel · auto-follow enabled</small></span></div><div className={styles.search}><Search size={13}/><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search event, source, or decision" aria-label="Search initialization logs"/></div><div className={styles.filters}><ListFilter size={13}/>{(["all","error","warning","security","info"] as const).map(value=><button className={level===value?styles.activeFilter:""} onClick={()=>setLevel(value)} type="button" key={value}>{value}</button>)}</div><span className={styles.follow}><i/>AUTO-FOLLOW</span></header>
+      <div className={styles.consoleGrid}>
+        <div className={styles.logStream}>
+          <div className={styles.logHead}><span>Offset</span><span>Level</span><span>Source</span><span>Event</span><span>Message / decision</span></div>
+          <div className={styles.logRows}>{filtered.length?filtered.map(event=><button className={`${styles.logRow} ${styles[event.level]} ${selectedEvent?.id===event.id?styles.selected:""}`} onClick={()=>setSelected(event.id)} type="button" key={event.id}><time>{event.offset}</time><span className={styles.level}>{levelIcon(event.level)}{event.level}</span><code>{event.source}</code><code>{event.event}</code><span className={styles.message}>{event.message}<b>{event.decision}</b></span></button>):<div className={styles.empty}><RefreshCw className={streaming?styles.spin:""} size={22}/><strong>{streaming?"Waiting for matching control events":"No events match this view"}</strong><span>Filters do not change autonomous collection or retention.</span></div>}</div>
+          <footer><span><Circle size={7}/>stream: initialization.control.local</span><span>records: {filtered.length}/{events.length}</span><span>cycle: #{cycle}</span></footer>
+        </div>
+
+        <aside className={styles.inspector}>
+          <header><div><FileCheck2 size={16}/><span><small>EVENT INSPECTOR</small><strong>{selectedEvent?.id??"No event selected"}</strong></span></div><Copy size={13}/></header>
+          {selectedEvent?<><div className={styles.eventSummary}><span className={`${styles.eventIcon} ${styles[selectedEvent.level]}`}>{levelIcon(selectedEvent.level)}</span><div><small>{selectedEvent.level.toUpperCase()} · {selectedEvent.offset}</small><h2>{selectedEvent.event}</h2><p>{selectedEvent.message}</p></div></div><dl><Detail label="Source" value={selectedEvent.source}/><Detail label="Decision" value={selectedEvent.decision}/><Detail label="Correlation" value={selectedEvent.correlation}/><Detail label="Evidence" value={selectedEvent.evidence}/></dl><div className={styles.payload}><div><span>Structured payload</span><b>JSON</b></div><pre>{`{
+  "event_id": "${selectedEvent.id}",
+  "cycle": ${cycle},
+  "source": "${selectedEvent.source}",
+  "event": "${selectedEvent.event}",
+  "decision": "${selectedEvent.decision}",
+  "production_record": false,
+  "retained": true
+}`}</pre></div><div className={styles.hash}><Fingerprint size={13}/><span><small>CHAIN DIGEST</small><strong>Pending production audit seal</strong></span></div></>:<div className={styles.noSelection}><FileClock size={21}/><span>Select an event to inspect its evidence.</span></div>}
+        </aside>
+      </div>
+    </section>
+
+    <div className={styles.lowerGrid}>
+      <section className={styles.timeline}><header><Clock3 size={17}/><div><h2>Cycle Timeline</h2><p>Current autonomous initialization sequence</p></div></header><div className={styles.timelineTrack}>{templates.map((event,index)=><div key={event.event}><span className={styles[event.level]}>{index<events.filter(e=>e.correlation===`init-cycle-${String(cycle).padStart(4,"0")}`).length?<CheckCircle2 size={12}/>:<Circle size={12}/>}</span><strong>{event.event}</strong><small>{event.offset}</small></div>)}</div></section>
+      <section className={styles.retention}><header><Database size={17}/><div><h2>Evidence Retention</h2><p>Append-only audit obligations</p></div></header><div><span><KeyRound size={14}/>Integrity mode</span><b>CHAINED</b></div><div><span><FileClock size={14}/>Local retention</span><b>ACTIVE SESSION</b></div><div><span><RefreshCw size={14}/>Production replication</span><b className={styles.bad}>UNAVAILABLE</b></div><div><span><LockKeyhole size={14}/>Manual deletion</span><b>PROHIBITED</b></div></section>
+      <section className={styles.auditNotice}><AlertTriangle size={18}/><div><strong>Production audit adapter unavailable</strong><p>The orchestrator retains local control evidence, blocks initialization completion, and retries replication automatically. Local evidence is never presented as a production audit record.</p></div><span><Bot size={14}/>AUTONOMOUS HOLD</span></section>
+    </div>
+  </main>
+}
+function Detail({label,value}:{label:string;value:string}){return <div><dt>{label}</dt><dd>{value}</dd></div>}
+function levelIcon(level:Level){if(level==="error")return <XCircle size={11}/>;if(level==="warning")return <AlertTriangle size={11}/>;if(level==="security")return <ShieldCheck size={11}/>;return <Info size={11}/>}

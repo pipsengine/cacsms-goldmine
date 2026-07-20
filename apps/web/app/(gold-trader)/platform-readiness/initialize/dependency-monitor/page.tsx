@@ -1,5 +1,8 @@
-import { OperationalPage } from "@/components/ui/operational-page";
+import type { Metadata } from "next";
+import { DependencyMonitorPage } from "@/components/platform-readiness/dependency-monitor-page";
+
+export const metadata: Metadata = { title: "Dependency Monitor | Gold Trader" };
 
 export default function Page() {
-  return <OperationalPage route="/platform-readiness/initialize/dependency-monitor" />;
+  return <DependencyMonitorPage />;
 }

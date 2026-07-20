@@ -1,0 +1,56 @@
+.page {
+  min-height: calc(100vh - 73px);
+  padding: 23px 30px 32px;
+  background: #f7f9fd;
+  color: #101936;
+}
+
+.breadcrumb { display: flex; align-items: center; gap: 5px; color: #6d7890; font-size: 12px; }
+.breadcrumb strong { color: #202944; }
+.pageHeader { margin-top: 17px; }
+.eyebrow { margin: 0 0 3px; color: #8a94a8; font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.pageHeader h1 { margin: 0; color: #111936; font-size: 34px; line-height: 1.1; letter-spacing: -.045em; }
+.metadata { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 13px; }
+.metadata span { padding: 6px 10px; border: 1px solid #e2e7ef; border-radius: 8px; background: #fff; color: #536079; font-size: 9px; box-shadow: 0 2px 6px rgba(32, 44, 78, .025); }
+.metadata .primaryTag { border-color: #ead18d; background: #fff8e7; color: #a66b00; font-weight: 800; }
+
+.statusList { display: grid; gap: 7px; margin-top: 16px; }
+.statusRow { display: grid; grid-template-columns: 50px 150px minmax(0, 1fr) 30px; gap: 18px; align-items: center; min-height: 72px; padding: 10px 17px; border: 1px solid #e3e8f1; border-radius: 12px; background: #fff; box-shadow: 0 4px 14px rgba(21, 31, 64, .035); }
+.statusIcon { width: 46px; height: 46px; display: grid; place-items: center; border-radius: 11px; }
+.purple { background: #eee9ff; color: #6b3ee3; }.green { background: #e9f8f1; color: #079c64; }.orange { background: #fff2e3; color: #e87c00; }.red { background: #ffeded; color: #df3c43; }
+.statusIdentity span, .statusIdentity strong { display: block; }
+.statusIdentity span { color: #65728a; font-size: 9px; font-weight: 700; }
+.statusIdentity strong { margin-top: 4px; font-size: 18px; }
+.purpleText { color: #673ddd; }.greenText { color: #079b64; }.orangeText { color: #e77c00; }.redText { color: #df3c43; }
+.statusRow p { max-width: 500px; margin: 0; color: #53627d; font-size: 10px; line-height: 1.5; }
+.statusRow button { width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 7px; background: transparent; color: #8792a5; cursor: pointer; }
+.statusRow button:hover { background: #f4f5f9; color: #4f5d77; }
+
+.workspace, .actions { border: 1px solid #e3e8f1; border-radius: 13px; background: #fff; box-shadow: 0 4px 15px rgba(21, 31, 64, .04); }
+.workspace { margin-top: 10px; padding: 16px 18px 15px; }
+.workspace > header { display: flex; align-items: center; gap: 11px; padding-bottom: 13px; border-bottom: 1px solid #edf0f5; }
+.workspace > header > span { width: 39px; height: 39px; display: grid; place-items: center; border-radius: 10px; background: #eee9ff; color: #6940df; }
+.workspace h2, .actions h2 { margin: 0; color: #17213d; font-size: 15px; }
+.workspace header p { margin: 3px 0 0; color: #8791a5; font-size: 9px; }
+.workspaceBody { margin-top: 8px; }
+.workspaceBody dl { width: min(100%, 760px); margin: 0; }
+.workspaceBody dl div { display: grid; grid-template-columns: 185px minmax(0, 1fr); gap: 20px; padding: 8px 14px; border-bottom: 1px solid #edf0f5; }
+.workspaceBody dl div:last-child { border-bottom: 0; }
+.workspaceBody dt { color: #26314b; font-size: 10px; font-weight: 750; }
+.workspaceBody dd { margin: 0; color: #68748a; font-size: 10px; }
+.workspaceBody dd strong { color: #6742c9; font-weight: 700; }
+
+.actions { margin-top: 10px; padding: 16px 18px; }
+.actionButtons { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 12px; }
+.actionButtons button { height: 36px; display: inline-flex; align-items: center; gap: 7px; padding: 0 13px; border: 1px solid #dce2ec; border-radius: 8px; background: #fff; color: #526079; font-size: 10px; font-weight: 650; cursor: pointer; }
+.actionButtons button:hover { border-color: #c9bfff; background: #f8f6ff; color: #6840dd; }
+.emptyState { display: flex; align-items: center; gap: 9px; margin-top: 12px; padding: 10px 12px; border: 1px solid #d8ceff; border-radius: 8px; background: #fff; color: #615795; font-size: 9px; }
+.emptyState > span { width: 18px; height: 18px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 50%; background: #6754df; color: #fff; }
+.emptyState p { margin: 0; }
+
+@media (max-width: 760px) {
+  .page { padding: 18px 14px 28px; }
+  .statusRow { grid-template-columns: 48px minmax(0, 1fr) 28px; gap: 12px; }
+  .statusRow p { grid-column: 1 / -1; max-width: none; }
+  .workspaceBody dl div { grid-template-columns: 1fr; gap: 4px; padding-inline: 0; }
+}

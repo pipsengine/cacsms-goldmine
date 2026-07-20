@@ -1,5 +1,8 @@
-import { OperationalPage } from "@/components/ui/operational-page";
+import type { Metadata } from "next";
+import { InitializationLogsPage } from "@/components/platform-readiness/initialization-logs-page";
+
+export const metadata: Metadata = { title: "Initialization Logs | Gold Trader" };
 
 export default function Page() {
-  return <OperationalPage route="/platform-readiness/initialize/initialization-logs" />;
+  return <InitializationLogsPage />;
 }

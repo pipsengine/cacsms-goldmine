@@ -1,5 +1,10 @@
-import { OperationalPage } from "@/components/ui/operational-page";
+import type { Metadata } from "next";
+import { RiskProfilePage } from "@/components/platform-readiness/risk-profile-page";
+
+export const metadata: Metadata = {
+  title: "Risk Profile | Gold Trader",
+};
 
 export default function Page() {
-  return <OperationalPage route="/platform-readiness/start/risk-profile" />;
+  return <RiskProfilePage />;
 }

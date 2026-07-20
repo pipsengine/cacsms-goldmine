@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "lint": "eslint .",
+    "test:handoff": "node scripts/test-start-initialize-handoff.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
