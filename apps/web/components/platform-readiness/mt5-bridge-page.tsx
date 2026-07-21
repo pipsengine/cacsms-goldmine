@@ -28,6 +28,8 @@ import styles from "./mt5-bridge-page.module.css";
 
 type StreamMode = "connecting" | "live" | "reconnecting" | "polling";
 
+const POLLING_INTERVAL_MS = 5000;
+
 type BridgeChannel = {
   id: string;
   label: string;
@@ -55,10 +57,13 @@ export function Mt5BridgePage() {
   const [snapshot, setSnapshot] = useState<ConnectivitySnapshot | null>(null);
   const [streamMode, setStreamMode] = useState<StreamMode>("connecting");
   const [lastError, setLastError] = useState<string | null>(null);
-  const fallbackTimer = useRef<number | undefined>(undefined);
   const reconnectCount = useRef(0);
+  const refreshPending = useRef(false);
 
   const refreshSnapshot = useCallback(async () => {
+    if (refreshPending.current) return null;
+    refreshPending.current = true;
+
     try {
       const response = await fetch("/api/platform-readiness/connect", {
         cache: "no-store",
@@ -72,6 +77,8 @@ export function Mt5BridgePage() {
     } catch (error) {
       setLastError(error instanceof Error ? error.message : "MT5 bridge refresh failed");
       return null;
+    } finally {
+      refreshPending.current = false;
     }
   }, []);
 
@@ -79,17 +86,13 @@ export function Mt5BridgePage() {
     let closed = false;
     const source = new EventSource("/api/platform-readiness/connect/stream");
 
-    const stopFallbackPolling = () => {
-      if (fallbackTimer.current) {
-        window.clearInterval(fallbackTimer.current);
-        fallbackTimer.current = undefined;
-      }
-    };
+    const pollingTimer = window.setInterval(() => {
+      void refreshSnapshot();
+    }, POLLING_INTERVAL_MS);
 
     source.addEventListener("open", () => {
       if (closed) return;
       reconnectCount.current = 0;
-      stopFallbackPolling();
       setStreamMode("live");
       setLastError(null);
     });
@@ -97,7 +100,6 @@ export function Mt5BridgePage() {
     source.addEventListener("snapshot", (event) => {
       if (closed) return;
       reconnectCount.current = 0;
-      stopFallbackPolling();
       setSnapshot(JSON.parse((event as MessageEvent).data) as ConnectivitySnapshot);
       setStreamMode("live");
       setLastError(null);
@@ -107,10 +109,7 @@ export function Mt5BridgePage() {
       if (closed) return;
       reconnectCount.current += 1;
       setStreamMode(reconnectCount.current > 2 ? "polling" : "reconnecting");
-      setLastError("Realtime MT5 bridge stream interrupted; autonomous polling fallback is active.");
-      if (!fallbackTimer.current) {
-        fallbackTimer.current = window.setInterval(refreshSnapshot, 6000);
-      }
+      setLastError("Realtime MT5 bridge stream interrupted; polling safety net remains active.");
     });
 
     void refreshSnapshot();
@@ -118,7 +117,7 @@ export function Mt5BridgePage() {
     return () => {
       closed = true;
       source.close();
-      stopFallbackPolling();
+      window.clearInterval(pollingTimer);
     };
   }, [refreshSnapshot]);
 
@@ -177,6 +176,9 @@ export function Mt5BridgePage() {
       </section>
 
       {lastError ? <div className={styles.notice}><AlertTriangle size={15} /><span>{lastError}</span></div> : null}
+      {bridgeService?.status !== "online" && bridgeService?.evidence ? (
+        <div className={styles.notice}><AlertTriangle size={15} /><span>{bridgeService.evidence}</span></div>
+      ) : null}
 
       <section className={styles.kpiGrid} aria-label="MT5 bridge status">
         <Kpi icon={ServerCog} tone="teal" label="Bridge Status" value={statusText[broker.status]} detail={bridgeService?.endpoint ?? "MT5 bridge endpoint not configured"} />

@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, CheckCircle2, Plus, RefreshCw, ShieldCheck, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ConnectivityDebugResponse,
   Mt5SessionMutationResponse,
@@ -11,6 +11,7 @@ import type {
 import styles from "./mt5-session-panel.module.css";
 
 const REQUEST_TIMEOUT_MS = 45000;
+const AUTO_REFRESH_MS = 5000;
 
 const initialForm: Mt5SessionProfileCreate = {
   tenantId: "",
@@ -41,8 +42,11 @@ export function Mt5SessionPanel({
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formState, setFormState] = useState<Mt5SessionProfileCreate>(initialForm);
+  const refreshPending = useRef(false);
 
   const refresh = useCallback(async () => {
+    if (refreshPending.current) return;
+    refreshPending.current = true;
     setLoading(true);
     try {
       const response = await fetchWithTimeout("/api/platform-readiness/connect/debug", { cache: "no-store", headers: { Accept: "application/json" } });
@@ -54,11 +58,17 @@ export function Mt5SessionPanel({
       setLastError(error instanceof Error ? error.message : "Unable to load MT5 sessions");
     } finally {
       setLoading(false);
+      refreshPending.current = false;
     }
   }, []);
 
   useEffect(() => {
     void refresh();
+    const timer = window.setInterval(() => {
+      void refresh();
+    }, AUTO_REFRESH_MS);
+
+    return () => window.clearInterval(timer);
   }, [refresh]);
 
   async function submitProfile() {
@@ -68,6 +78,10 @@ export function Mt5SessionPanel({
     try {
       if (!selectedTerminalPath || !generatedTerminalId || !formState.server) {
         throw new Error("Select a terminal and broker server before saving the session.");
+      }
+
+      if (formState.login?.trim() && !/^\d+$/.test(formState.login.trim())) {
+        throw new Error("Enter the numeric MT5 trading account ID shown in the terminal, not an email address.");
       }
 
       const response = await fetchWithTimeout("/api/platform-readiness/connect/mt5-sessions", {
@@ -258,8 +272,14 @@ export function Mt5SessionPanel({
                 </select>
               </label>
               <label>
-                <span>Account Login</span>
-                <input value={formState.login ?? ""} onChange={(event) => setFormState((current) => ({ ...current, login: event.target.value }))} placeholder="52877052" />
+                <span>MT5 Account Login</span>
+                <input
+                  value={formState.login ?? ""}
+                  onChange={(event) => setFormState((current) => ({ ...current, login: event.target.value }))}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  placeholder="Numeric trading account ID, e.g. 52877052"
+                />
               </label>
               <label>
                 <span>Broker Server</span>

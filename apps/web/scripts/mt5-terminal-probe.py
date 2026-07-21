@@ -130,6 +130,22 @@ def main():
     symbol = args.symbol
     detected_paths = detect_terminal_paths(args.terminal_path)
 
+    login = None
+    if args.login:
+        try:
+            login = int(args.login)
+        except ValueError:
+            print(
+                json.dumps(
+                    build_error(
+                        symbol,
+                        detected_paths,
+                        "MT5 account login must be a numeric trading account ID, not an email address or application username.",
+                    )
+                )
+            )
+            return
+
     try:
         import MetaTrader5 as mt5
     except ImportError:
@@ -139,10 +155,11 @@ def main():
     initialize_kwargs = {}
     if detected_paths:
         initialize_kwargs["path"] = detected_paths[0]
-    if args.login:
-        initialize_kwargs["login"] = int(args.login)
-    if args.password:
-        initialize_kwargs["password"] = args.password
+    if login is not None:
+        initialize_kwargs["login"] = login
+    password = args.password or os.getenv("MT5_PROBE_PASSWORD")
+    if password:
+        initialize_kwargs["password"] = password
     if args.server:
         initialize_kwargs["server"] = args.server
 

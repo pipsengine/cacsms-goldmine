@@ -1,11 +1,10 @@
-import { getConnectivitySnapshot } from "@/lib/server/connectivity-snapshot";
+import { getInitializationSnapshot } from "@/lib/server/initialization-snapshot";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const encoder = new TextEncoder();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let reconnectAttempt = 0;
   let closed = false;
 
   const stream = new ReadableStream({
@@ -14,30 +13,20 @@ export async function GET(request: Request) {
         if (closed) return;
         closed = true;
         if (timer) clearTimeout(timer);
-        try {
-          controller.close();
-        } catch {
-          /* Client closed the stream first. */
-        }
+        try { controller.close(); } catch { /* Client disconnected first. */ }
       };
-
       const send = async () => {
         if (closed) return;
         try {
-          const snapshot = await getConnectivitySnapshot(reconnectAttempt);
+          const snapshot = await getInitializationSnapshot();
           if (closed) return;
           controller.enqueue(encoder.encode(`event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`));
-          reconnectAttempt += 1;
         } catch {
           close();
           return;
         }
-
-        timer = setTimeout(() => {
-          void send();
-        }, 5000);
+        timer = setTimeout(() => void send(), 5000);
       };
-
       controller.enqueue(encoder.encode("retry: 3000\n\n"));
       void send();
       request.signal.addEventListener("abort", close, { once: true });
@@ -48,11 +37,5 @@ export async function GET(request: Request) {
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-    },
-  });
+  return new Response(stream, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive" } });
 }

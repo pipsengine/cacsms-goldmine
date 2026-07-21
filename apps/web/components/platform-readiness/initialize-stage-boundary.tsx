@@ -19,6 +19,11 @@ export function InitializeStageBoundary({ children }: { children: React.ReactNod
   const [handoff, setHandoff] = useState<StartInitializeHandoff | null>(null);
   const [runtime, setRuntime] = useState<LifecycleRuntime | null>(null);
   const [channel, setChannel] = useState<HandoffContextValue["channel"]>("loading");
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -48,9 +53,9 @@ export function InitializeStageBoundary({ children }: { children: React.ReactNod
 
   const authorized = Boolean(runtime?.status === "running" && runtime.currentStage === "initialize" && handoff && handoff.schemaVersion === "start-initialize/v1" && handoff.sourceStage === "START" && handoff.targetStage === "INITIALIZE" && handoff.decision === "AUTHORIZED" && Date.parse(handoff.expiresAt) > Date.now());
   const value = useMemo(() => ({ handoff, runtime, authorized, channel }), [handoff, runtime, authorized, channel]);
-  const isStageRoot = pathname === "/platform-readiness/initialize";
+  const isReadOnlyMonitor = pathname === "/platform-readiness/initialize" || pathname === "/platform-readiness/initialize/engine-initialization" || pathname === "/platform-readiness/initialize/ai-agent-initialization" || pathname === "/platform-readiness/initialize/service-initialization" || pathname === "/platform-readiness/initialize/dependency-monitor";
 
-  if (isStageRoot) return <HandoffContext.Provider value={value}>{children}</HandoffContext.Provider>;
+  if (hydrated && isReadOnlyMonitor) return <HandoffContext.Provider value={value}>{children}</HandoffContext.Provider>;
   if (authorized) return <HandoffContext.Provider value={value}>{children}</HandoffContext.Provider>;
 
   return <main className={styles.page}>

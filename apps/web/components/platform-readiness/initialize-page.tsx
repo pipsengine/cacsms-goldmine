@@ -28,11 +28,10 @@ import {
   Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { LifecycleControlResponse, LifecycleRuntime } from "@/types/lifecycle-control";
-import type { StartInitializeHandoff, StartInitializeHandoffResponse } from "@/types/platform-readiness-handoff";
+import type { InitializationSnapshot, InitializationStatus } from "@/types/initialization";
 import styles from "./initialize-page.module.css";
 
-type InitStatus = "pending" | "running" | "ready" | "blocked";
+type InitStatus = InitializationStatus;
 
 type InitStep = {
   id: string;
@@ -64,93 +63,85 @@ const engineGroups = [
 ] as const;
 
 export function InitializePage() {
-  const [steps, setSteps] = useState(initialSteps);
-  const [cycle, setCycle] = useState(0);
-  const [nextRetry, setNextRetry] = useState(90);
-  const [running, setRunning] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [handoff, setHandoff] = useState<StartInitializeHandoff | null>(null);
-  const [runtime, setRuntime] = useState<LifecycleRuntime | null>(null);
-  const [handoffStatus, setHandoffStatus] = useState<"loading" | "received" | "absent" | "error">("loading");
-  const timers = useRef<number[]>([]);
-  const retryRef = useRef(90);
+  const [snapshot, setSnapshot] = useState<InitializationSnapshot | null>(null);
+  const [streamMode, setStreamMode] = useState<"connecting" | "live" | "polling">("connecting");
+  const [error, setError] = useState<string | null>(null);
+  const [dismissedMessage, setDismissedMessage] = useState<string | null>(null);
+  const refreshPending = useRef(false);
+  const mounted = useRef(true);
+  const streamLive = useRef(false);
 
-  const runInitialization = useCallback(() => {
-    timers.current.forEach(window.clearTimeout);
-    timers.current = [];
-    retryRef.current = 90;
-    setNextRetry(90);
-    setCycle((value) => value + 1);
-    setRunning(true);
-    setMessage(null);
-    setSteps((current) => current.map((step) => ({ ...step, status: "pending" })));
-
-    initialSteps.forEach((step, index) => {
-      const start = window.setTimeout(() => setSteps((current) => current.map((item) => item.id === step.id ? { ...item, status: "running" } : item)), index * 180);
-      const finish = window.setTimeout(() => {
-        setSteps((current) => current.map((item) => item.id === step.id ? { ...item, status: "blocked" } : item));
-        if (index === initialSteps.length - 1) {
-          setRunning(false);
-          setMessage("Initialization cycle completed safely. Required production adapters are unavailable; INITIALIZE remains locked and autonomous retry is scheduled.");
-        }
-      }, index * 180 + 650);
-      timers.current.push(start, finish);
-    });
-  }, []);
-
-  const refreshHandoff = useCallback(async () => {
+  const refresh = useCallback(async () => {
+    if (refreshPending.current) return;
+    refreshPending.current = true;
     try {
-      const [handoffResponse, runtimeResponse] = await Promise.all([
-        fetch("/api/platform-readiness/handoff/start-initialize", { cache: "no-store", headers: { Accept: "application/json" } }),
-        fetch("/api/lifecycle-control", { cache: "no-store", headers: { Accept: "application/json" } }),
-      ]);
-      if (!handoffResponse.ok || !runtimeResponse.ok) throw new Error("Lifecycle state request failed");
-      const payload = await handoffResponse.json() as StartInitializeHandoffResponse;
-      const lifecycle = await runtimeResponse.json() as LifecycleControlResponse;
-      setHandoff(payload.handoff);
-      setRuntime(lifecycle.runtime);
-      setHandoffStatus(payload.handoff ? "received" : "absent");
-    } catch {
-      setHandoff(null);
-      setRuntime(null);
-      setHandoffStatus("error");
+      const response = await fetch("/api/platform-readiness/initialize", { cache: "no-store", headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error(`Initialization snapshot failed with ${response.status}`);
+      const payload = await response.json() as InitializationSnapshot;
+      if (!mounted.current) return;
+      setSnapshot(payload);
+      setError(null);
+    } catch (cause) {
+      if (mounted.current) setError(cause instanceof Error ? cause.message : "Initialization snapshot unavailable.");
+    } finally {
+      refreshPending.current = false;
     }
   }, []);
 
   useEffect(() => {
-    void refreshHandoff();
-    const pollTimer = window.setInterval(refreshHandoff, 3000);
-    const handleRuntimeUpdate = () => void refreshHandoff();
+    mounted.current = true;
+    let stream: EventSource | null = null;
+    let reconnectTimer: number | null = null;
+    const connect = () => {
+      if (!mounted.current) return;
+      const next = new EventSource("/api/platform-readiness/initialize/stream");
+      stream = next;
+      next.addEventListener("open", () => { streamLive.current = true; setStreamMode("live"); });
+      next.addEventListener("snapshot", (event) => {
+        try {
+          setSnapshot(JSON.parse((event as MessageEvent).data) as InitializationSnapshot);
+          setError(null);
+          setStreamMode("live");
+        } catch {
+          setError("A realtime initialization snapshot could not be decoded.");
+        }
+      });
+      next.addEventListener("error", () => {
+        if (stream === next) stream = null;
+        streamLive.current = false;
+        next.close();
+        setStreamMode("polling");
+        if (mounted.current && reconnectTimer === null) reconnectTimer = window.setTimeout(() => {
+          reconnectTimer = null;
+          connect();
+        }, 3000);
+      });
+    };
+    const pollTimer = window.setInterval(() => { if (!streamLive.current) void refresh(); }, 5000);
+    const handleRuntimeUpdate = () => void refresh();
     window.addEventListener("lifecycle-runtime-updated", handleRuntimeUpdate);
+    connect();
+    void refresh();
     return () => {
+      mounted.current = false;
+      streamLive.current = false;
+      stream?.close();
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       window.clearInterval(pollTimer);
       window.removeEventListener("lifecycle-runtime-updated", handleRuntimeUpdate);
     };
-  }, [refreshHandoff]);
+  }, [refresh]);
 
-  const handoffAuthorized = Boolean(runtime?.status === "running" && runtime.currentStage === "initialize" && handoff && handoff.decision === "AUTHORIZED" && Date.parse(handoff.expiresAt) > Date.now());
-  const authorizedHandoffId = handoffAuthorized ? handoff?.handoffId ?? null : null;
-
-  useEffect(() => {
-    if (!authorizedHandoffId) {
-      timers.current.forEach(window.clearTimeout);
-      timers.current = [];
-      setRunning(false);
-      setSteps((current) => current.map((step) => ({ ...step, status: "blocked" })));
-      setMessage(handoffStatus === "loading" ? null : runtime?.status === "stopped" ? "The Trading System Lifecycle is stopped. INITIALIZE execution is disabled until the top-bar Start control begins a new autonomous lifecycle." : handoff?.decision === "HOLD" ? `START handoff ${handoff.correlationId} was received with HOLD. INITIALIZE will not execute until START publishes complete production evidence.` : "No valid START authorization handoff is available. INITIALIZE remains fail-closed and continues monitoring automatically.");
-      return;
-    }
-    runInitialization();
-    const retryTimer = window.setInterval(() => {
-      const next = retryRef.current - 1;
-      if (next <= 0) runInitialization();
-      else { retryRef.current = next; setNextRetry(next); }
-    }, 1000);
-    return () => {
-      window.clearInterval(retryTimer);
-      timers.current.forEach(window.clearTimeout);
-    };
-  }, [authorizedHandoffId, handoff?.correlationId, handoff?.decision, handoffStatus, runInitialization, runtime?.status]);
+  const steps = initialSteps.map((step) => {
+    const evidence = snapshot?.steps.find((item) => item.id === step.id);
+    return { ...step, status: evidence?.status ?? "pending" as InitStatus, ready: evidence?.ready ?? 0, required: evidence?.required ?? step.required, evidence: evidence?.evidence ?? "Connecting to initialization evidence." };
+  });
+  const handoff = snapshot?.handoff ?? null;
+  const runtime = snapshot?.runtime ?? null;
+  const handoffAuthorized = snapshot?.handoffAuthorized ?? false;
+  const running = steps.some((step) => step.status === "running");
+  const cycle = snapshot?.cycle ?? 0;
+  const message = error ?? (snapshot?.message !== dismissedMessage ? snapshot?.message ?? null : null);
 
   const counts = useMemo(() => ({
     ready: steps.filter((step) => step.status === "ready").length,
@@ -158,9 +149,8 @@ export function InitializePage() {
     blocked: steps.filter((step) => step.status === "blocked").length,
     pending: steps.filter((step) => step.status === "pending").length,
   }), [steps]);
-  const checked = counts.ready + counts.blocked;
-  const assessmentProgress = Math.round((checked / steps.length) * 100);
-  const canAdvance = handoffAuthorized && steps.every((step) => step.status === "ready");
+  const assessmentProgress = snapshot?.progress ?? 0;
+  const canAdvance = snapshot?.canAdvance ?? false;
 
   return (
     <main className={styles.page}>
@@ -170,20 +160,20 @@ export function InitializePage() {
         <div>
           <div className={styles.titleRow}><span className={styles.stageNumber}>02</span><div><p>Autonomous lifecycle stage</p><h1>Initialize</h1></div></div>
           <div className={styles.metadata}>
-            <span className={styles.primaryTag}>INITIALIZE</span><span>Mode: Fully Autonomous</span><span>Owner: Lifecycle Orchestrator</span><span>Policy: Ordered · Idempotent · Fail Closed</span><span>Audit: audit.platform-readiness.initialize</span>
+            <span className={styles.primaryTag}>INITIALIZE</span><span>Mode: Fully Autonomous</span><span>Owner: Lifecycle Orchestrator</span><span>Policy: Ordered · Idempotent · Fail Closed</span><span>Realtime: {streamMode}</span><span>Updated: {formatTime(snapshot?.updatedAt)}</span><span>Audit: audit.platform-readiness.initialize</span>
           </div>
         </div>
-        <div className={`${styles.stageStatus} ${canAdvance ? styles.stageReady : ""}`}><small>Stage Decision</small><strong>{canAdvance ? <CheckCircle2 size={14} /> : <LockKeyhole size={14} />}{canAdvance ? "Advance to CONNECT" : running ? "Initializing" : handoff?.decision === "HOLD" ? "START handoff held" : "Awaiting START"}</strong></div>
+        <div className={`${styles.stageStatus} ${canAdvance ? styles.stageReady : ""}`}><small>Stage Decision</small><strong>{canAdvance ? <CheckCircle2 size={14} /> : <LockKeyhole size={14} />}{snapshot?.decision === "ADVANCE" ? "Advance to CONNECT" : snapshot?.decision === "INITIALIZING" ? "Initializing" : "Hold"}</strong></div>
       </header>
 
       <section className={`${styles.handoffGate} ${handoffAuthorized ? styles.handoffAuthorized : ""}`}>
-        <div className={styles.handoffIdentity}>{handoffAuthorized ? <CheckCircle2 size={20} /> : <LockKeyhole size={20} />}<span><small>STAGE 1 → STAGE 2 HANDOFF</small><strong>{handoffStatus === "loading" ? "Loading START evidence" : handoffStatus === "error" ? "Handoff channel unavailable" : runtime?.status === "stopped" ? "Lifecycle stopped" : handoffStatus === "absent" ? "No START handoff published" : `${runtime?.status.toUpperCase()} · ${handoff?.decision} · sequence ${handoff?.sequence}`}</strong></span></div>
+        <div className={styles.handoffIdentity}>{handoffAuthorized ? <CheckCircle2 size={20} /> : <LockKeyhole size={20} />}<span><small>STAGE 1 → STAGE 2 HANDOFF</small><strong>{error ? "Handoff channel unavailable" : !snapshot ? "Loading START evidence" : runtime?.status === "stopped" ? "Lifecycle stopped" : !handoff ? "No START handoff published" : `${runtime?.status.toUpperCase()} · ${handoff.decision} · sequence ${handoff.sequence}`}</strong></span></div>
         <div className={styles.handoffInputs}><span><small>Operating mode</small><b>{handoff?.inputs.operatingMode.state ?? "unavailable"}</b></span><span><small>Trading profile</small><b>{handoff?.inputs.tradingProfile.state ?? "unavailable"}</b></span><span><small>Risk profile</small><b>{handoff?.inputs.riskProfile.state ?? "unavailable"}</b></span><span><small>Checklist</small><b>{handoff ? `${handoff.inputs.checklist.passed}/${handoff.inputs.checklist.required} required passed` : "not received"}</b></span></div>
         <div className={styles.handoffAudit}><small>Correlation ID</small><strong>{handoff?.correlationId ?? "Not issued"}</strong><span>{handoff ? `SHA-256 ${handoff.integrity.digest.slice(0, 12)}…` : "Integrity pending"}</span></div>
       </section>
 
       <section className={styles.summaryGrid}>
-        <article className={styles.summaryCard}><span className={`${styles.summaryIcon} ${styles.purple}`}><Workflow size={21} /></span><div><small>Initialization Cycle</small><strong>#{cycle}</strong><p>{running ? "Autonomous sequence active" : handoffAuthorized ? `Retry in ${nextRetry}s` : "Gated by START decision"}</p></div></article>
+        <article className={styles.summaryCard}><span className={`${styles.summaryIcon} ${styles.purple}`}><Workflow size={21} /></span><div><small>Initialization Cycle</small><strong>#{cycle}</strong><p>{running ? "Production initialization active" : handoffAuthorized ? "Authorized handoff available" : "Gated by START decision"}</p></div></article>
         <article className={styles.summaryCard}><span className={`${styles.summaryIcon} ${styles.green}`}><CheckCircle2 size={21} /></span><div><small>Ready Components</small><strong>{counts.ready}/{steps.length}</strong><p>Required stage groups</p></div></article>
         <article className={styles.summaryCard}><span className={`${styles.summaryIcon} ${styles.orange}`}><Gauge size={21} /></span><div><small>Assessment</small><strong>{assessmentProgress}%</strong><p>{counts.running} currently initializing</p></div></article>
         <article className={styles.summaryCard}><span className={`${styles.summaryIcon} ${styles.red}`}><AlertTriangle size={21} /></span><div><small>Blocked Groups</small><strong>{counts.blocked}</strong><p>Fail-closed dependencies</p></div></article>
@@ -194,9 +184,9 @@ export function InitializePage() {
           <article className={styles.pipelineCard}>
             <header className={styles.cardHeader}>
               <div className={styles.cardTitle}><span><Boxes size={19} /></span><div><h2>Autonomous Initialization Pipeline</h2><p>Every component initializes in dependency order with evidence and automatic retry.</p></div></div>
-              <div className={styles.automationBadge}><i /><Bot size={14} />{running ? "Orchestrating now" : `Monitoring · retry ${nextRetry}s`}</div>
+              <div className={styles.automationBadge}><i /><Bot size={14} />{streamMode === "live" ? "Live evidence stream" : streamMode === "polling" ? "5s polling fallback" : "Connecting"}</div>
             </header>
-            {message ? <div className={styles.message}><AlertTriangle size={15} /><span>{message}</span><button type="button" onClick={() => setMessage(null)} aria-label="Dismiss"><X size={14} /></button></div> : null}
+            {message ? <div className={styles.message}><AlertTriangle size={15} /><span>{message}</span><button type="button" onClick={() => setDismissedMessage(message)} aria-label="Dismiss"><X size={14} /></button></div> : null}
             <div className={styles.stepList}>
               {steps.map((step, index) => {
                 const Icon = step.icon;
@@ -204,8 +194,8 @@ export function InitializePage() {
                   <a className={`${styles.stepRow} ${styles[`row_${step.status}`]}`} href={step.route} key={step.id}>
                     <span className={styles.stepOrder}>{String(index + 1).padStart(2, "0")}</span>
                     <span className={styles.stepIcon}><Icon size={18} /></span>
-                    <span className={styles.stepIdentity}><strong>{step.title}</strong><small>{step.description}</small></span>
-                    <span className={styles.requirement}>{step.required} required</span>
+                    <span className={styles.stepIdentity}><strong>{step.title}</strong><small>{step.evidence}</small></span>
+                    <span className={styles.requirement}>{step.ready}/{step.required} ready</span>
                     <span className={`${styles.statusBadge} ${styles[`status_${step.status}`]}`}>{stepStatusIcon(step.status)}{statusLabel[step.status]}</span>
                     <ChevronRight size={16} />
                   </a>
@@ -216,7 +206,7 @@ export function InitializePage() {
 
           <article className={styles.topologyCard}>
             <header className={styles.cardHeader}><div className={styles.cardTitle}><span><Network size={19} /></span><div><h2>Engine Topology</h2><p>Autonomous authorities are isolated by responsibility and connected through audited events.</p></div></div></header>
-            <div className={styles.engineGrid}>{engineGroups.map(([title, detail, Icon]) => <div className={styles.engine} key={title}><span><Icon size={20} /></span><div><strong>{title}</strong><small>{detail}</small></div><b>Unbound</b></div>)}</div>
+            <div className={styles.engineGrid}>{engineGroups.map(([title, detail, Icon]) => <div className={styles.engine} key={title}><span><Icon size={20} /></span><div><strong>{title}</strong><small>{detail}</small></div><b>{engineState(snapshot, title)}</b></div>)}</div>
           </article>
         </section>
 
@@ -230,13 +220,13 @@ export function InitializePage() {
           <article className={styles.railCard}>
             <h3>Lifecycle Orchestrator</h3>
             <div className={styles.orchestrator}><span><CloudCog size={25} /></span><div><strong>Initialization AI</strong><small>Continuous · idempotent</small></div></div>
-            <dl className={styles.railDetails}><div><dt>Current action</dt><dd>{running ? "Initializing" : "Monitoring"}</dd></div><div><dt>Stage outcome</dt><dd className={canAdvance ? styles.good : styles.hold}>{canAdvance ? "READY" : "HOLD"}</dd></div><div><dt>Next retry</dt><dd>{nextRetry}s</dd></div><div><dt>Manual approval</dt><dd>Not required</dd></div><div><dt>Unsafe bypass</dt><dd>Prohibited</dd></div></dl>
+            <dl className={styles.railDetails}><div><dt>Current action</dt><dd>{running ? "Initializing" : "Monitoring"}</dd></div><div><dt>Stage outcome</dt><dd className={canAdvance ? styles.good : styles.hold}>{snapshot?.decision ?? "CONNECTING"}</dd></div><div><dt>Connectivity</dt><dd>{snapshot ? `${snapshot.connectivityScore}%` : "—"}</dd></div><div><dt>Manual approval</dt><dd>Not required</dd></div><div><dt>Unsafe bypass</dt><dd>Prohibited</dd></div></dl>
           </article>
 
           <article className={styles.railCard}>
             <h3>Autonomous Activity</h3>
-            <div className={styles.timeline}><div><i /><p>Initialization cycle #{cycle} created</p><time>Current</time></div><div><i /><p>Dependency order resolved</p><time>Automatic</time></div><div><i /><p>Fail-closed policy applied</p><time>Automatic</time></div><div><i /><p>{running ? "Component initialization running" : "Retry schedule published"}</p><time>Live</time></div></div>
-            <div className={styles.auditNote}><FileClock size={14} /><span>Every attempt, dependency, decision, and failure is retained automatically.</span></div>
+            <div className={styles.timeline}>{(snapshot?.activity ?? []).map((item) => <div key={item.id}><i /><p>{item.message}</p><time>{formatTime(item.timestamp)}</time></div>)}{!snapshot?.activity.length ? <div><i /><p>Connecting to initialization activity.</p><time>Pending</time></div> : null}</div>
+            <div className={styles.auditNote}><FileClock size={14} /><span>Live snapshots are correlated with lifecycle and START handoff evidence.</span></div>
           </article>
         </aside>
       </div>
@@ -249,4 +239,19 @@ function stepStatusIcon(status: InitStatus) {
   if (status === "running") return <RefreshCw className={styles.spinning} size={13} />;
   if (status === "blocked") return <X size={13} />;
   return <Circle size={13} />;
+}
+
+function engineState(snapshot: InitializationSnapshot | null, title: string) {
+  if (!snapshot) return "Connecting";
+  if (title === "Lifecycle Engine") return snapshot.runtime.status === "running" && snapshot.runtime.currentStage === "initialize" ? "Active" : "Stopped";
+  const engines = snapshot.steps.find((step) => step.id === "engines");
+  if (engines?.status === "ready") return "Ready";
+  if (engines?.status === "running") return "Starting";
+  if (engines?.status === "blocked") return "Adapter held";
+  return "Waiting";
+}
+
+function formatTime(value?: string | null) {
+  if (!value) return "--:--:--";
+  return new Intl.DateTimeFormat("en-NG", { timeZone: "Africa/Lagos", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date(value));
 }

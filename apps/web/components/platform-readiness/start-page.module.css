@@ -21,6 +21,10 @@
 .stageStatus small { color: #7a869c; font-size: 9px; }
 .stageStatus strong { margin-top: 7px; font-size: 11px; }
 .stageStatus i { display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: #f0a316; box-shadow: 0 0 0 4px #fff3dc; }
+.stageStatus.stageGreen i { background: #12a66a; box-shadow: 0 0 0 4px #e8f8ef; }
+.stageStatus.stagePurple i { background: #6b3fe5; box-shadow: 0 0 0 4px #eee9ff; }
+.stageStatus.stageRed i { background: #df3c43; box-shadow: 0 0 0 4px #ffeded; }
+.stageStatus.stageOrange i { background: #f0a316; box-shadow: 0 0 0 4px #fff3dc; }
 
 .pageGrid { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 18px; margin-top: 20px; }
 .mainColumn { min-width: 0; }

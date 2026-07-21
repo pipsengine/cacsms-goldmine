@@ -24,8 +24,15 @@ export async function POST(request: Request) {
     return Response.json({ error: "Broker server is required." }, { status: 400 });
   }
 
-  invalidateMt5LocalBridgeCache();
+  if (body.login?.trim() && !/^\d+$/.test(body.login.trim())) {
+    return Response.json(
+      { error: "MT5 account login must be a numeric trading account ID, not an email address or application username." },
+      { status: 400 },
+    );
+  }
+
   const response: Mt5SessionMutationResponse = await upsertMt5SessionProfile(body);
+  invalidateMt5LocalBridgeCache();
   return Response.json(response, { headers: { "Cache-Control": "no-store" } });
 }
 
@@ -36,8 +43,8 @@ export async function PATCH(request: Request) {
     return Response.json({ error: "Profile ID is required." }, { status: 400 });
   }
 
-  invalidateMt5LocalBridgeCache();
   const response: Mt5SessionMutationResponse = await setActiveMt5SessionProfile(body.profileId.trim());
+  invalidateMt5LocalBridgeCache();
   return Response.json(response, { headers: { "Cache-Control": "no-store" } });
 }
 
@@ -48,7 +55,7 @@ export async function DELETE(request: Request) {
     return Response.json({ error: "Profile ID is required." }, { status: 400 });
   }
 
-  invalidateMt5LocalBridgeCache();
   const response: Mt5SessionMutationResponse = await deleteMt5SessionProfile(body.profileId.trim());
+  invalidateMt5LocalBridgeCache();
   return Response.json(response, { headers: { "Cache-Control": "no-store" } });
 }

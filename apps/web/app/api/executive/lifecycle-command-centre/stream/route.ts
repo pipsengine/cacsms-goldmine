@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const encoder = new TextEncoder();
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   let closed = false;
 
   const stream = new ReadableStream({
@@ -12,25 +12,29 @@ export async function GET(request: Request) {
       const close = () => {
         if (closed) return;
         closed = true;
-        if (timer) clearInterval(timer);
+        if (timer) clearTimeout(timer);
         try { controller.close(); } catch { /* The client may already have closed the stream. */ }
       };
-      const send = () => {
+      const send = async () => {
         if (closed) return;
         try {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(getControlledLifecycleSnapshot())}\n\n`));
+          const snapshot = await getControlledLifecycleSnapshot();
+          if (closed) return;
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(snapshot)}\n\n`));
         } catch {
           close();
+          return;
         }
+        timer = setTimeout(() => void send(), 5000);
       };
 
-      send();
-      timer = setInterval(send, 15000);
+      controller.enqueue(encoder.encode("retry: 3000\n\n"));
+      void send();
       request.signal.addEventListener("abort", close, { once: true });
     },
     cancel() {
       closed = true;
-      if (timer) clearInterval(timer);
+      if (timer) clearTimeout(timer);
     },
   });
 

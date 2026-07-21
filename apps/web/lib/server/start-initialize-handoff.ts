@@ -1,16 +1,21 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { StartAssessmentRequest, StartCheckEvidence, StartInitializeHandoff } from "@/types/platform-readiness-handoff";
 
-type HandoffStore = { sequence: number; current: StartInitializeHandoff | null };
+type HandoffStore = { sequence: number; current: StartInitializeHandoff | null; history: StartInitializeHandoff[] };
 
 const globalStore = globalThis as typeof globalThis & { __startInitializeHandoff?: HandoffStore };
-const store = globalStore.__startInitializeHandoff ?? { sequence: 0, current: null };
+const store = globalStore.__startInitializeHandoff ?? { sequence: 0, current: null, history: [] };
+store.history ??= store.current ? [store.current] : [];
 globalStore.__startInitializeHandoff = store;
 
 const expectedChecks = new Set(["database", "messaging", "agents", "operating-mode", "trading-profile", "risk-profile", "broker", "symbol", "market-data", "account", "news", "emergency"]);
 
 export function getStartInitializeHandoff() {
   return store.current;
+}
+
+export function getStartInitializeHandoffHistory() {
+  return [...store.history];
 }
 
 export function createStartInitializeHandoff(assessment: StartAssessmentRequest): StartInitializeHandoff {
@@ -40,7 +45,7 @@ export function createStartInitializeHandoff(assessment: StartAssessmentRequest)
     inputs: {
       operatingMode: { value: operatingVerified ? "production" as const : null, state: operatingVerified ? "verified" as const : "unavailable" as const, source: "platform-readiness.start.operating-mode" as const },
       tradingProfile: { symbol: tradingVerified ? "XAUUSD" as const : null, sessionPolicy: tradingVerified ? "production-session-policy" : null, strategyPolicy: tradingVerified ? "approved-strategy-registry" : null, state: tradingVerified ? "verified" as const : "unavailable" as const, source: "platform-readiness.start.trading-profile" as const },
-      riskProfile: { profile: "Conservative" as const, configuredRiskPerTrade: "0.50%" as const, effectiveMultiplier: riskVerified ? "1.00x" as const : "0.00x" as const, state: riskVerified ? "verified" as const : "unavailable" as const, source: "platform-readiness.start.risk-profile" as const },
+      riskProfile: { profile: "Conservative" as const, configuredRiskPerTrade: "0.50%" as const, effectiveMultiplier: authorized && riskVerified ? "1.00x" as const : "0.00x" as const, state: riskVerified ? "verified" as const : "unavailable" as const, source: "platform-readiness.start.risk-profile" as const },
       checklist: {
         cycleNumber: Math.max(1, Math.trunc(assessment.cycleNumber)),
         total: checks.length,
@@ -56,6 +61,8 @@ export function createStartInitializeHandoff(assessment: StartAssessmentRequest)
   const handoff: StartInitializeHandoff = { ...unsigned, integrity: { algorithm: "sha256", digest: createHash("sha256").update(JSON.stringify(unsigned)).digest("hex") } };
   store.sequence = sequence;
   store.current = handoff;
+  store.history.push(handoff);
+  if (store.history.length > 200) store.history.splice(0, store.history.length - 200);
   return handoff;
 }
 

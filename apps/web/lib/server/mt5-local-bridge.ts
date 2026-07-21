@@ -11,7 +11,7 @@ const SYMBOL = process.env.GOLD_SYMBOL ?? "XAUUSD";
 const PYTHON_LAUNCHER = process.env.MT5_PYTHON_LAUNCHER ?? "py";
 const SCRIPT_TIMEOUT_MS = 4000;
 const SUCCESS_CACHE_MS = 5000;
-const ERROR_CACHE_MS = 15000;
+const ERROR_CACHE_MS = 5000;
 const currentFilePath = fileURLToPath(import.meta.url);
 const scriptPath = path.resolve(path.dirname(currentFilePath), "..", "..", "scripts", "mt5-terminal-probe.py");
 
@@ -130,12 +130,12 @@ async function runProbe(
   const server = activeProfile?.server ?? process.env.MT5_SERVER;
 
   if (login) args.push("--login", login);
-  if (password) args.push("--password", password);
   if (server) args.push("--server", server);
 
   try {
     const { stdout } = await execFileAsync(PYTHON_LAUNCHER, args, {
       cwd: process.cwd(),
+      env: password ? { ...process.env, MT5_PROBE_PASSWORD: password } : process.env,
       timeout: SCRIPT_TIMEOUT_MS,
       maxBuffer: 1024 * 1024,
       windowsHide: true,

@@ -28,7 +28,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { StartCheckEvidence, StartInitializeHandoff, StartInitializeHandoffResponse } from "@/types/platform-readiness-handoff";
+import type { StartCheckEvidence, StartInitializeHandoff } from "@/types/platform-readiness-handoff";
 import styles from "./pre-start-checklist-page.module.css";
 
 type CheckStatus = "pending" | "running" | "passed" | "warning" | "blocked";
@@ -44,10 +44,20 @@ type ChecklistItem = {
   icon: typeof Database;
 };
 
+type PreStartAssessmentResponse = {
+  schemaVersion: "pre-start-assessment/v1";
+  cycleNumber: number;
+  validatedAt: string;
+  checks: StartCheckEvidence[];
+  handoff: StartInitializeHandoff;
+};
+
+const REFRESH_INTERVAL_SECONDS = 5;
+
 const initialItems: ChecklistItem[] = [
   { id: "database", category: "Core Services", label: "Production database", description: "Validate the primary database connection and migration state.", required: true, status: "pending", icon: Database },
   { id: "messaging", category: "Core Services", label: "Real-time messaging", description: "Confirm lifecycle events and operational channels are available.", required: true, status: "pending", icon: Radio },
-  { id: "agents", category: "Core Services", label: "AI agent registry", description: "Verify required analysis, risk, and execution agents are initialized.", required: true, status: "pending", icon: Bot },
+  { id: "agents", category: "Core Services", label: "AI agent registry", description: "Verify required governed agent manifests are registered for INITIALIZE.", required: true, status: "pending", icon: Bot },
   { id: "operating-mode", category: "Trading Configuration", label: "Operating mode", description: "Confirm demo, simulation, prop-firm, or live operating state.", required: true, status: "pending", icon: Settings2 },
   { id: "trading-profile", category: "Trading Configuration", label: "Trading profile", description: "Validate the active XAUUSD trading profile and session policy.", required: true, status: "pending", icon: UserRoundCog },
   { id: "risk-profile", category: "Trading Configuration", label: "Risk profile", description: "Confirm account, basket, daily, and weekly risk boundaries.", required: true, status: "pending", icon: ShieldCheck },
@@ -73,21 +83,21 @@ export function PreStartChecklistPage() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["database"]));
   const [isRunning, setIsRunning] = useState(false);
   const [runMessage, setRunMessage] = useState<string | null>(null);
-  const [nextCycleIn, setNextCycleIn] = useState(60);
+  const [nextCycleIn, setNextCycleIn] = useState(REFRESH_INTERVAL_SECONDS);
   const [cycleNumber, setCycleNumber] = useState(0);
   const [handoff, setHandoff] = useState<StartInitializeHandoff | null>(null);
   const [handoffState, setHandoffState] = useState<"waiting" | "publishing" | "published" | "error">("waiting");
-  const timers = useRef<number[]>([]);
-  const nextCycleRef = useRef(60);
-  const cycleRef = useRef(0);
+  const nextCycleRef = useRef(REFRESH_INTERVAL_SECONDS);
+  const productionRunPending = useRef(false);
+  const lastAutomaticRunAt = useRef(0);
+  const [validatedAt, setValidatedAt] = useState<string | null>(null);
 
   const counts = useMemo(() => {
     const count = (status: CheckStatus) => items.filter((item) => item.status === status).length;
     return { passed: count("passed"), running: count("running"), warning: count("warning"), blocked: count("blocked"), pending: count("pending") };
   }, [items]);
 
-  const completeCount = counts.passed + counts.warning + counts.blocked;
-  const progress = Math.round((completeCount / items.length) * 100);
+  const progress = Math.round((counts.passed / items.length) * 100);
   const requiredIssues = items.filter((item) => item.required && (item.status === "blocked" || item.status === "warning")).length;
   const canStart = items.filter((item) => item.required).every((item) => item.status === "passed");
   const categories = Array.from(new Set(items.map((item) => item.category)));
@@ -107,73 +117,75 @@ export function PreStartChecklistPage() {
     });
   };
 
-  const publishHandoff = useCallback(async (cycle: number, checks: StartCheckEvidence[]) => {
-    setHandoffState("publishing");
+  const runProductionChecks = useCallback(async (foreground = false) => {
+    if (productionRunPending.current) return;
+    const now = Date.now();
+    if (!foreground && now - lastAutomaticRunAt.current < 4500) return;
+    if (!foreground) lastAutomaticRunAt.current = now;
+    productionRunPending.current = true;
+    if (foreground) {
+      setRunMessage(null);
+      setIsRunning(true);
+      setHandoffState("publishing");
+      setItems((current) => current.map((item) => ({ ...item, status: "running" })));
+    }
+    nextCycleRef.current = REFRESH_INTERVAL_SECONDS;
+    setNextCycleIn(REFRESH_INTERVAL_SECONDS);
+
     try {
-      const response = await fetch("/api/platform-readiness/handoff/start-initialize", {
+      const response = await fetch(`/api/platform-readiness/pre-start-assessment${foreground ? "?force=1" : ""}`, {
         method: "POST",
         cache: "no-store",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ cycleNumber: cycle, checks }),
+        headers: { Accept: "application/json" },
       });
-      if (!response.ok) throw new Error(`Handoff publication failed with ${response.status}`);
-      const payload = await response.json() as StartInitializeHandoffResponse;
+      if (!response.ok) throw new Error(`Production assessment failed with ${response.status}`);
+      const payload = await response.json() as PreStartAssessmentResponse;
+      const checksById = new Map(payload.checks.map((check) => [check.id, check]));
+      setItems((current) => current.map((item) => ({ ...item, status: checksById.get(item.id)?.status ?? "blocked" })));
+      setCycleNumber(payload.cycleNumber);
+      setValidatedAt(payload.validatedAt);
       setHandoff(payload.handoff);
       setHandoffState("published");
-    } catch {
+      const held = payload.checks.filter((check) => check.required && check.status !== "passed");
+      setRunMessage(held.length ? `Production assessment completed. Required checks held: ${held.map((check) => check.label).join(", ")}.` : null);
+    } catch (error) {
       setHandoffState("error");
-      setRunMessage("Autonomous validation completed, but the START → INITIALIZE handoff could not be published. START remains locked and publication will be retried next cycle.");
+      if (foreground) setItems((current) => current.map((item) => ({ ...item, status: item.status === "running" ? "blocked" : item.status })));
+      setRunMessage(error instanceof Error ? error.message : "Production assessment failed; START remains locked.");
+    } finally {
+      productionRunPending.current = false;
+      if (foreground) setIsRunning(false);
     }
   }, []);
 
-  const runChecks = useCallback(() => {
-    timers.current.forEach(window.clearTimeout);
-    timers.current = [];
-    setRunMessage(null);
-    setIsRunning(true);
-    nextCycleRef.current = 60;
-    setNextCycleIn(60);
-    const cycle = cycleRef.current + 1;
-    cycleRef.current = cycle;
-    setCycleNumber(cycle);
-    setItems((current) => current.map((item) => ({ ...item, status: "pending" })));
-
-    initialItems.forEach((item, index) => {
-      const startTimer = window.setTimeout(() => {
-        setItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, status: "running" } : candidate));
-      }, index * 110);
-      const finishTimer = window.setTimeout(() => {
-        setItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, status: "blocked" } : candidate));
-        if (index === initialItems.length - 1) {
-          setIsRunning(false);
-          setRunMessage("Autonomous validation completed. Production adapters are unavailable, so the lifecycle orchestrator kept START locked and scheduled revalidation.");
-          const evidence: StartCheckEvidence[] = initialItems.map((check) => ({ id: check.id, label: check.label, required: check.required, status: "blocked", evidenceSource: "unavailable" }));
-          void publishHandoff(cycle, evidence);
-        }
-      }, index * 110 + 420);
-      timers.current.push(startTimer, finishTimer);
-    });
-  }, [publishHandoff]);
-
   useEffect(() => {
-    runChecks();
-    const cycleTimer = window.setInterval(() => {
+    const lifecycleStream = new EventSource("/api/executive/lifecycle-command-centre/stream");
+    const connectivityStream = new EventSource("/api/platform-readiness/connect/stream");
+    const pollTimer = window.setInterval(() => void runProductionChecks(), REFRESH_INTERVAL_SECONDS * 1000);
+    const countdownTimer = window.setInterval(() => {
       const next = nextCycleRef.current - 1;
       if (next <= 0) {
-        nextCycleRef.current = 60;
-        setNextCycleIn(60);
-        runChecks();
+        nextCycleRef.current = REFRESH_INTERVAL_SECONDS;
+        setNextCycleIn(REFRESH_INTERVAL_SECONDS);
       } else {
         nextCycleRef.current = next;
         setNextCycleIn(next);
       }
     }, 1000);
+    const onProductionUpdate = () => void runProductionChecks();
+    lifecycleStream.addEventListener("message", onProductionUpdate);
+    connectivityStream.addEventListener("snapshot", onProductionUpdate);
+    window.addEventListener("lifecycle-runtime-updated", onProductionUpdate);
+    void runProductionChecks();
 
     return () => {
-      window.clearInterval(cycleTimer);
-      timers.current.forEach(window.clearTimeout);
+      lifecycleStream.close();
+      connectivityStream.close();
+      window.clearInterval(pollTimer);
+      window.clearInterval(countdownTimer);
+      window.removeEventListener("lifecycle-runtime-updated", onProductionUpdate);
     };
-  }, [runChecks]);
+  }, [runProductionChecks]);
 
   return (
     <main className={styles.page}>
@@ -195,6 +207,8 @@ export function PreStartChecklistPage() {
             <span>Mode: Fully Autonomous</span>
             <span>Gate policy: Fail Closed</span>
             <span>Decision owner: Lifecycle Orchestrator</span>
+            <span>Realtime: SSE + 5s fallback</span>
+            <span>Last validated: {formatValidatedAt(validatedAt)}</span>
             <span>Audit: audit.platform-readiness.start.pre-start-checklist</span>
           </div>
         </div>
@@ -234,7 +248,7 @@ export function PreStartChecklistPage() {
                   <button className={filter === value ? styles.activeFilter : ""} onClick={() => setFilter(value)} type="button" key={value}>{value}</button>
                 ))}
               </div>
-              <div className={styles.automationBadge}><span /><Cpu size={14} />{isRunning ? "Autonomous validation running" : `Monitoring · next cycle ${nextCycleIn}s`}</div>
+              <div className={styles.automationBadge}><span /><Cpu size={14} />{isRunning ? "Production validation running" : `Monitoring · next cycle ${nextCycleIn}s`}</div>
             </div>
           </header>
 
@@ -264,10 +278,10 @@ export function PreStartChecklistPage() {
                             <div className={styles.rowDetails}>
                               <dl>
                                 <div><dt>Validation source</dt><dd>Production service adapter</dd></div>
-                                <div><dt>Last validated</dt><dd>Not yet validated</dd></div>
+                                <div><dt>Last validated</dt><dd>{formatValidatedAt(validatedAt)}</dd></div>
                                 <div><dt>Audit identity</dt><dd>pre-start.{item.id}</dd></div>
                               </dl>
-                              <p>{item.status === "blocked" ? "The required production adapter is unavailable. This check cannot be bypassed." : "Run the checklist to request current validation evidence."}</p>
+                              <p>{checkDetail(item.status, item.required)}</p>
                             </div>
                           ) : null}
                         </article>
@@ -313,7 +327,7 @@ export function PreStartChecklistPage() {
           <article className={styles.railCard}>
             <h3>Autonomous Control</h3>
             <div className={styles.autonomyState}><span /><div><strong>Continuous validation active</strong><small>Cycle #{cycleNumber} · next run in {nextCycleIn}s</small></div></div>
-            <button className={styles.secondaryButton} type="button"><FileClock size={14} />View validation history</button>
+            <button className={styles.secondaryButton} type="button" onClick={() => void runProductionChecks(true)}><FileClock size={14} />Refresh production evidence</button>
             <p className={styles.controlNote}><ShieldCheck size={14} />Every autonomous result retains its evidence, decision rationale, and audit identity.</p>
           </article>
         </aside>
@@ -328,4 +342,16 @@ function statusIcon(status: CheckStatus) {
   if (status === "blocked") return <X size={13} />;
   if (status === "running") return <RefreshCw className={styles.spinning} size={13} />;
   return <Circle size={13} />;
+}
+
+function formatValidatedAt(value: string | null) {
+  return value ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(value)) : "Connecting";
+}
+
+function checkDetail(status: CheckStatus, required: boolean) {
+  if (status === "passed") return "Current production evidence passed this validation check.";
+  if (status === "warning") return required ? "Production evidence returned a required warning; START remains locked." : "Optional production evidence returned a warning and will be rechecked.";
+  if (status === "blocked") return "Current production evidence did not satisfy this check. It cannot be bypassed.";
+  if (status === "running") return "The production adapter is collecting current validation evidence.";
+  return "Waiting for the next production validation cycle.";
 }

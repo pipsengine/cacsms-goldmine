@@ -11,6 +11,10 @@ import type {
 } from "@/types/connectivity";
 
 const AUTO_REFRESH_MS = 5000;
+type ConnectivityCache = { value: ConnectivitySnapshot | null; pending: Promise<ConnectivitySnapshot> | null; expiresAt: number };
+const connectivityGlobal = globalThis as typeof globalThis & { __connectivitySnapshotCache?: ConnectivityCache };
+const connectivityCache = connectivityGlobal.__connectivitySnapshotCache ?? { value: null, pending: null, expiresAt: 0 };
+connectivityGlobal.__connectivitySnapshotCache = connectivityCache;
 
 function configured(value: string | undefined) {
   return Boolean(value && value.trim().length > 0);
@@ -71,6 +75,20 @@ function overallStatus(services: ConnectivityService[]): ConnectivityStatus {
 }
 
 export async function getConnectivitySnapshot(reconnectAttempt = 0): Promise<ConnectivitySnapshot> {
+  if (connectivityCache.value && connectivityCache.expiresAt > Date.now()) return connectivityCache.value;
+  if (connectivityCache.pending) return connectivityCache.pending;
+  connectivityCache.pending = buildConnectivitySnapshot(reconnectAttempt);
+  try {
+    const snapshot = await connectivityCache.pending;
+    connectivityCache.value = snapshot;
+    connectivityCache.expiresAt = Date.now() + 4500;
+    return snapshot;
+  } finally {
+    connectivityCache.pending = null;
+  }
+}
+
+async function buildConnectivitySnapshot(reconnectAttempt = 0): Promise<ConnectivitySnapshot> {
   const now = new Date();
   const tickSeed = Math.floor(now.getTime() / AUTO_REFRESH_MS);
   const runtime = getLifecycleRuntime();

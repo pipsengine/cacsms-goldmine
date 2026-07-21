@@ -90,7 +90,9 @@ export default function LifecycleCommandCentreView() {
 
   useEffect(() => {
     mounted.current = true;
-    let pollTimer: number | undefined;
+    let closed = false;
+    let refreshPending = false;
+    let activeStream: EventSource | null = null;
     let reconnectTimer: number | undefined;
     const controller = new AbortController();
 
@@ -101,19 +103,29 @@ export default function LifecycleCommandCentreView() {
     };
 
     const refresh = async () => {
+      if (refreshPending || closed) return;
+      refreshPending = true;
       try {
         applySnapshot(await fetchLifecycleSnapshot(controller.signal));
       } catch {
-        setLiveConnection("reconnecting");
+        if (!closed) setLiveConnection("reconnecting");
+      } finally {
+        refreshPending = false;
       }
     };
 
     const connectStream = () => {
+      if (closed) return;
       const stream = openLifecycleStream();
-      if (!stream) return null;
+      if (!stream) return;
+      activeStream?.close();
+      activeStream = stream;
 
-      stream.onopen = () => setLiveConnection("connected");
+      stream.onopen = () => {
+        if (!closed) setLiveConnection("connected");
+      };
       stream.onmessage = (event) => {
+        if (closed) return;
         try {
           applySnapshot(JSON.parse(event.data) as LifecycleSnapshot);
         } catch {
@@ -121,24 +133,29 @@ export default function LifecycleCommandCentreView() {
         }
       };
       stream.onerror = () => {
+        if (closed || activeStream !== stream) return;
         setLiveConnection("reconnecting");
         stream.close();
-        reconnectTimer = window.setTimeout(connectStream, 5000);
+        activeStream = null;
+        if (reconnectTimer) window.clearTimeout(reconnectTimer);
+        reconnectTimer = window.setTimeout(connectStream, 3000);
       };
-
-      return stream;
     };
 
     void refresh();
-    const stream = connectStream();
-    pollTimer = window.setInterval(refresh, 15000);
+    connectStream();
+    const pollTimer = window.setInterval(() => void refresh(), 5000);
+    const onRuntimeUpdate = () => void refresh();
+    window.addEventListener("lifecycle-runtime-updated", onRuntimeUpdate);
 
     return () => {
+      closed = true;
       mounted.current = false;
       controller.abort();
-      stream?.close();
-      if (pollTimer) window.clearInterval(pollTimer);
+      activeStream?.close();
+      window.clearInterval(pollTimer);
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      window.removeEventListener("lifecycle-runtime-updated", onRuntimeUpdate);
     };
   }, []);
 
@@ -323,10 +340,14 @@ export default function LifecycleCommandCentreView() {
           </section>
           <section className={styles.railCard}>
             <h3><Activity size={18} /> Live Connection</h3>
-            <p className={styles.connectionText}>{liveConnection === "connected" ? "Lifecycle stream connected" : "Using resilient snapshot sync"}</p>
+            <p className={styles.connectionText}>{liveConnection === "connected" ? `Lifecycle stream connected · updated ${formatTime(snapshot.updatedAt)}` : "Using resilient 5-second snapshot sync"}</p>
           </section>
         </aside>
       </div>
     </section>
   );
+}
+
+function formatTime(value: string) {
+  return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(value));
 }
