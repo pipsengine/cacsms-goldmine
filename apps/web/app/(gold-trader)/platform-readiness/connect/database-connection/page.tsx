@@ -1,5 +1,5 @@
-import { OperationalPage } from "@/components/ui/operational-page";
+import { DatabaseConnectionPage } from "@/components/platform-readiness/database-connection-page";
 
 export default function Page() {
-  return <OperationalPage route="/platform-readiness/connect/database-connection" />;
+  return <DatabaseConnectionPage />;
 }

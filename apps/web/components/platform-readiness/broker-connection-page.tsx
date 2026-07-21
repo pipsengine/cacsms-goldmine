@@ -23,6 +23,7 @@ import {
   WifiOff,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Mt5SessionPanel } from "@/components/platform-readiness/mt5-session-panel";
 import type { BrokerConnectivity, ConnectivitySnapshot, ConnectivitySnapshotResponse, ConnectivityStatus } from "@/types/connectivity";
 import styles from "./broker-connection-page.module.css";
 
@@ -78,16 +79,28 @@ export function BrokerConnectionPage() {
     let closed = false;
     const source = new EventSource("/api/platform-readiness/connect/stream");
 
+    const stopFallbackPolling = () => {
+      if (fallbackTimer.current) {
+        window.clearInterval(fallbackTimer.current);
+        fallbackTimer.current = undefined;
+      }
+    };
+
     source.addEventListener("open", () => {
       if (closed) return;
+      reconnectCount.current = 0;
+      stopFallbackPolling();
       setStreamMode("live");
       setLastError(null);
     });
 
     source.addEventListener("snapshot", (event) => {
       if (closed) return;
+      reconnectCount.current = 0;
+      stopFallbackPolling();
       setSnapshot(JSON.parse((event as MessageEvent).data) as ConnectivitySnapshot);
       setStreamMode("live");
+      setLastError(null);
     });
 
     source.addEventListener("error", () => {
@@ -105,7 +118,7 @@ export function BrokerConnectionPage() {
     return () => {
       closed = true;
       source.close();
-      if (fallbackTimer.current) window.clearInterval(fallbackTimer.current);
+      stopFallbackPolling();
     };
   }, [refreshSnapshot]);
 
@@ -186,6 +199,12 @@ export function BrokerConnectionPage() {
                   <div><dt>Terminal</dt><dd>{broker.terminal}</dd></div>
                   <div><dt>Account</dt><dd>{broker.account}</dd></div>
                   <div><dt>Trade mode</dt><dd>{broker.tradeMode}</dd></div>
+                  <div><dt>Balance</dt><dd>{formatMoney(broker.balance, broker.currency)}</dd></div>
+                  <div><dt>Equity</dt><dd>{formatMoney(broker.equity, broker.currency)}</dd></div>
+                  <div><dt>Free margin</dt><dd>{formatMoney(broker.freeMargin, broker.currency)}</dd></div>
+                  <div><dt>Margin</dt><dd>{formatMoney(broker.margin, broker.currency)}</dd></div>
+                  <div><dt>Margin level</dt><dd>{formatPercent(broker.marginLevel)}</dd></div>
+                  <div><dt>Leverage</dt><dd>{broker.leverage ? `1:${broker.leverage}` : "n/a"}</dd></div>
                   <div><dt>Bridge latency</dt><dd>{formatMs(bridgeService?.latencyMs ?? broker.pingMs)}</dd></div>
                   <div><dt>Database sync</dt><dd>{statusText[databaseService?.status ?? "connecting"]}</dd></div>
                 </dl>
@@ -202,6 +221,11 @@ export function BrokerConnectionPage() {
               </div>
             </div>
           </article>
+
+          <Mt5SessionPanel
+            title="Broker Tenant Session Selector"
+            description="Select or register the tenant-owned MT5 broker profile that should drive broker identity and account binding on this machine."
+          />
 
           <article className={styles.panel}>
             <PanelHeader icon={ShieldCheck} title="Readiness Gates" detail="Broker connection checks required before the platform can trust execution routes." />
@@ -300,12 +324,30 @@ function emptyBroker(): BrokerConnectivity {
     tradeMode: "unconfigured",
     pingMs: null,
     spreadPoints: null,
+    balance: null,
+    equity: null,
+    margin: null,
+    freeMargin: null,
+    marginLevel: null,
+    currency: null,
+    leverage: null,
     permissions: [],
   };
 }
 
 function formatMs(value: number | null | undefined) {
   return typeof value === "number" ? `${value} ms` : "n/a";
+}
+
+function formatMoney(value: number | null | undefined, currency: string | null | undefined) {
+  if (typeof value !== "number") return "n/a";
+  const unit = currency?.trim() ? ` ${currency}` : "";
+  return `${value.toFixed(2)}${unit}`;
+}
+
+function formatPercent(value: number | null | undefined) {
+  if (typeof value !== "number") return "n/a";
+  return `${value.toFixed(2)}%`;
 }
 
 function formatTime(value: string) {

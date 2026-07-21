@@ -1,4 +1,10 @@
-Implement the Connect page (/platform-readiness/connect) using the approved Figma redesign as a pixel-perfect reference. Build it with React, Next.js, TypeScript, HTML5, and CSS Modules following the existing project architecture. Do not modify the existing sidebar, header, routing, or layout. The page must be fully autonomous, with no human input required, automatically connecting to backend APIs and real-time services (SSE/WebSockets), auto-refreshing, auto-reconnecting, and dynamically displaying connection status, broker connectivity, market data, AI engine, database, external services, diagnostics, alerts, logs, and health indicators. Deliver a production-ready, responsive, enterprise-grade implementation using reusable components, strong typing, and clean, maintainable code.
+Implement the Connect page (/platform-readiness/connect) using the approved Figma redesign as a pixel-perfect reference.
+Build it with React, Next.js, TypeScript, HTML5, and CSS Modules following the existing project architecture. 
+Do not modify the existing sidebar, header, routing, or layout. The page must be fully autonomous, 
+with no human input required, automatically connecting to backend APIs and real-time services (SSE/WebSockets), 
+auto-refreshing, auto-reconnecting, and dynamically displaying connection status, broker connectivity, market data, 
+AI engine, database, external services, diagnostics, alerts, logs, and health indicators. Deliver a production-ready, 
+responsive, enterprise-grade implementation using reusable components, strong typing, and clean, maintainable code.
 
 
 

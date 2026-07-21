@@ -46,7 +46,7 @@ export function ConnectPage() {
   const [snapshot, setSnapshot] = useState<ConnectivitySnapshot | null>(null);
   const [streamState, setStreamState] = useState<StreamState>("connecting");
   const [lastError, setLastError] = useState<string | null>(null);
-  const [websocketState, setWebsocketState] = useState<ConnectivityStatus>("connecting");
+  const [websocketState, setWebsocketState] = useState<ConnectivityStatus | null>(null);
   const reconnects = useRef(0);
   const websocketRetry = useRef<number | undefined>(undefined);
 
@@ -72,16 +72,28 @@ export function ConnectPage() {
     let fallbackTimer: number | undefined;
     const source = new EventSource("/api/platform-readiness/connect/stream");
 
+    const stopFallbackPolling = () => {
+      if (fallbackTimer) {
+        window.clearInterval(fallbackTimer);
+        fallbackTimer = undefined;
+      }
+    };
+
     source.addEventListener("open", () => {
       if (closed) return;
+      reconnects.current = 0;
+      stopFallbackPolling();
       setStreamState("live");
       setLastError(null);
     });
 
     source.addEventListener("snapshot", (event) => {
       if (closed) return;
+      reconnects.current = 0;
+      stopFallbackPolling();
       setSnapshot(JSON.parse((event as MessageEvent).data) as ConnectivitySnapshot);
       setStreamState("live");
+      setLastError(null);
     });
 
     source.addEventListener("error", () => {
@@ -99,12 +111,16 @@ export function ConnectPage() {
     return () => {
       closed = true;
       source.close();
-      if (fallbackTimer) window.clearInterval(fallbackTimer);
+      stopFallbackPolling();
     };
   }, [refreshSnapshot]);
 
   useEffect(() => {
-    if (!snapshot?.websocketEndpoint) return;
+    if (!snapshot?.websocketEndpoint) {
+      setWebsocketState(null);
+      return;
+    }
+    const websocketEndpoint = snapshot.websocketEndpoint;
 
     let socket: WebSocket | undefined;
     let closed = false;
@@ -113,7 +129,7 @@ export function ConnectPage() {
       if (closed) return;
       try {
         setWebsocketState("connecting");
-        socket = new WebSocket(snapshot.websocketEndpoint);
+        socket = new WebSocket(websocketEndpoint);
         socket.onopen = () => setWebsocketState("online");
         socket.onmessage = () => setWebsocketState("online");
         socket.onerror = () => setWebsocketState("degraded");
@@ -169,7 +185,7 @@ export function ConnectPage() {
             <span className={styles.primaryTag}>CONNECT</span>
             <span>Mode: Fully autonomous</span>
             <span>SSE: {streamState}</span>
-            <span>WebSocket: {statusLabel[websocketState]}</span>
+            <span>WebSocket: {snapshot?.websocketEndpoint ? statusLabel[websocketState ?? "connecting"] : "Not configured"}</span>
             <span>Audit: audit.platform-readiness.connect</span>
           </div>
         </div>

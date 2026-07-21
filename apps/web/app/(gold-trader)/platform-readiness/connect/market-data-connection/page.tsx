@@ -1,5 +1,5 @@
-import { OperationalPage } from "@/components/ui/operational-page";
+import { MarketDataConnectionPage } from "@/components/platform-readiness/market-data-connection-page";
 
 export default function Page() {
-  return <OperationalPage route="/platform-readiness/connect/market-data-connection" />;
+  return <MarketDataConnectionPage />;
 }

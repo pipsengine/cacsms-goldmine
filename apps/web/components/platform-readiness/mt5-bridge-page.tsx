@@ -22,6 +22,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Mt5SessionPanel } from "@/components/platform-readiness/mt5-session-panel";
 import type { BrokerConnectivity, ConnectivitySnapshot, ConnectivitySnapshotResponse, ConnectivityStatus } from "@/types/connectivity";
 import styles from "./mt5-bridge-page.module.css";
 
@@ -78,16 +79,28 @@ export function Mt5BridgePage() {
     let closed = false;
     const source = new EventSource("/api/platform-readiness/connect/stream");
 
+    const stopFallbackPolling = () => {
+      if (fallbackTimer.current) {
+        window.clearInterval(fallbackTimer.current);
+        fallbackTimer.current = undefined;
+      }
+    };
+
     source.addEventListener("open", () => {
       if (closed) return;
+      reconnectCount.current = 0;
+      stopFallbackPolling();
       setStreamMode("live");
       setLastError(null);
     });
 
     source.addEventListener("snapshot", (event) => {
       if (closed) return;
+      reconnectCount.current = 0;
+      stopFallbackPolling();
       setSnapshot(JSON.parse((event as MessageEvent).data) as ConnectivitySnapshot);
       setStreamMode("live");
+      setLastError(null);
     });
 
     source.addEventListener("error", () => {
@@ -105,7 +118,7 @@ export function Mt5BridgePage() {
     return () => {
       closed = true;
       source.close();
-      if (fallbackTimer.current) window.clearInterval(fallbackTimer.current);
+      stopFallbackPolling();
     };
   }, [refreshSnapshot]);
 
@@ -186,6 +199,10 @@ export function Mt5BridgePage() {
                   <div><dt>Server</dt><dd>{broker.server}</dd></div>
                   <div><dt>Mode</dt><dd>{broker.tradeMode}</dd></div>
                   <div><dt>Ping</dt><dd>{formatMs(broker.pingMs)}</dd></div>
+                  <div><dt>Balance</dt><dd>{formatMoney(broker.balance, broker.currency)}</dd></div>
+                  <div><dt>Equity</dt><dd>{formatMoney(broker.equity, broker.currency)}</dd></div>
+                  <div><dt>Free margin</dt><dd>{formatMoney(broker.freeMargin, broker.currency)}</dd></div>
+                  <div><dt>Margin level</dt><dd>{formatPercent(broker.marginLevel)}</dd></div>
                 </dl>
               </div>
               <div className={styles.permissionPanel}>
@@ -202,6 +219,11 @@ export function Mt5BridgePage() {
               </div>
             </div>
           </article>
+
+          <Mt5SessionPanel
+            title="MT5 Tenant Session Selector"
+            description="Choose the active tenant-terminal profile or save account credentials for an auto-detected local MT5 installation."
+          />
 
           <article className={styles.panel}>
             <PanelHeader icon={Activity} title="Bridge Channels" detail="Heartbeat, quotes, execution commands, reconciliation, and safety interlocks." />
@@ -308,6 +330,13 @@ function emptyBroker(): BrokerConnectivity {
     tradeMode: "unconfigured",
     pingMs: null,
     spreadPoints: null,
+    balance: null,
+    equity: null,
+    margin: null,
+    freeMargin: null,
+    marginLevel: null,
+    currency: null,
+    leverage: null,
     permissions: [],
   };
 }
@@ -318,6 +347,17 @@ function formatMs(value: number | null | undefined) {
 
 function formatPrice(value: number | null | undefined) {
   return typeof value === "number" ? value.toFixed(2) : "n/a";
+}
+
+function formatMoney(value: number | null | undefined, currency: string | null | undefined) {
+  if (typeof value !== "number") return "n/a";
+  const unit = currency?.trim() ? ` ${currency}` : "";
+  return `${value.toFixed(2)}${unit}`;
+}
+
+function formatPercent(value: number | null | undefined) {
+  if (typeof value !== "number") return "n/a";
+  return `${value.toFixed(2)}%`;
 }
 
 function formatTime(value: string) {

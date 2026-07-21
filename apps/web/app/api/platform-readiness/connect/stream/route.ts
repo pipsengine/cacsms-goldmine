@@ -21,10 +21,10 @@ export async function GET(request: Request) {
         }
       };
 
-      const send = () => {
+      const send = async () => {
         if (closed) return;
         try {
-          const snapshot = getConnectivitySnapshot(reconnectAttempt);
+          const snapshot = await getConnectivitySnapshot(reconnectAttempt);
           controller.enqueue(encoder.encode(`event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`));
           reconnectAttempt += 1;
         } catch {
@@ -33,8 +33,10 @@ export async function GET(request: Request) {
       };
 
       controller.enqueue(encoder.encode("retry: 3000\n\n"));
-      send();
-      timer = setInterval(send, 5000);
+      void send();
+      timer = setInterval(() => {
+        void send();
+      }, 5000);
       request.signal.addEventListener("abort", close, { once: true });
     },
     cancel() {

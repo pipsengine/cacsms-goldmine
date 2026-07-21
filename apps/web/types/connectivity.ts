@@ -32,6 +32,13 @@ export type BrokerConnectivity = {
   tradeMode: "live" | "demo" | "read-only" | "unconfigured";
   pingMs: number | null;
   spreadPoints: number | null;
+  balance: number | null;
+  equity: number | null;
+  margin: number | null;
+  freeMargin: number | null;
+  marginLevel: number | null;
+  currency: string | null;
+  leverage: number | null;
   permissions: string[];
 };
 
@@ -80,7 +87,7 @@ export type ConnectivitySnapshot = {
   autoRefreshMs: number;
   reconnectAttempt: number;
   sseEndpoint: string;
-  websocketEndpoint: string;
+  websocketEndpoint: string | null;
   broker: BrokerConnectivity;
   marketData: MarketDataConnectivity;
   aiEngine: AiEngineConnectivity;
@@ -99,4 +106,95 @@ export type ConnectivitySnapshot = {
 
 export type ConnectivitySnapshotResponse = {
   snapshot: ConnectivitySnapshot;
+};
+
+export type Mt5TerminalDebug = {
+  ok: boolean;
+  source: "mt5-local-python";
+  terminalDetected: boolean;
+  terminalConnected: boolean;
+  accountConnected: boolean;
+  symbol: string;
+  symbolSelected: boolean;
+  terminalPath: string | null;
+  terminalName: string | null;
+  detectedTerminalPaths: string[];
+  brokerName: string | null;
+  server: string | null;
+  accountLogin: string | null;
+  tradeMode: "live" | "demo" | "read-only" | "unconfigured";
+  pingMs: number | null;
+  balance: number | null;
+  equity: number | null;
+  margin: number | null;
+  freeMargin: number | null;
+  marginLevel: number | null;
+  currency: string | null;
+  leverage: number | null;
+  bid: number | null;
+  ask: number | null;
+  spread: number | null;
+  lastTickAt: string | null;
+  ticksPerMinute: number | null;
+  positionsTotal: number | null;
+  ordersTotal: number | null;
+  permissions: string[];
+  error: string | null;
+};
+
+export type ConnectivityDebugResponse = {
+  mt5: Mt5TerminalDebug | null;
+  sessions: Mt5SessionProfileSummary[];
+  activeSessionId: string | null;
+  storageMode: "mssql" | "memory";
+  terminals: Mt5TerminalCatalogItem[];
+};
+
+export type Mt5SessionProfileSummary = {
+  id: string;
+  tenantId: string;
+  userId: string;
+  terminalId: string;
+  label: string;
+  terminalPath: string | null;
+  login: string | null;
+  server: string | null;
+  accountType: "Demo" | "Live" | "Prop Firm";
+  hasPassword: boolean;
+  active: boolean;
+  lastUpdatedAt: string;
+};
+
+export type Mt5SessionProfileCreate = {
+  tenantId: string;
+  userId: string;
+  terminalId: string;
+  label: string;
+  terminalPath: string | null;
+  login: string | null;
+  password: string;
+  server: string | null;
+  accountType: "Demo" | "Live" | "Prop Firm";
+  activate: boolean;
+};
+
+export type Mt5TerminalCatalogItem = {
+  terminalId: string;
+  terminalName: string;
+  terminalPath: string;
+  brokerName: string | null;
+  detectedServer: string | null;
+  serverOptions: string[];
+};
+
+export type Mt5SessionProfilesResponse = {
+  profiles: Mt5SessionProfileSummary[];
+  activeSessionId: string | null;
+  storageMode: "mssql" | "memory";
+};
+
+export type Mt5SessionMutationResponse = {
+  profiles: Mt5SessionProfileSummary[];
+  activeSessionId: string | null;
+  storageMode: "mssql" | "memory";
 };

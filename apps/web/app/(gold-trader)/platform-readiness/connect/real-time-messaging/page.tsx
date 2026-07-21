@@ -1,5 +1,5 @@
-import { OperationalPage } from "@/components/ui/operational-page";
+import { RealTimeMessagingPage } from "@/components/platform-readiness/real-time-messaging-page";
 
 export default function Page() {
-  return <OperationalPage route="/platform-readiness/connect/real-time-messaging" />;
+  return <RealTimeMessagingPage />;
 }
