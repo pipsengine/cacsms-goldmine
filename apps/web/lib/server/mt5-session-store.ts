@@ -75,7 +75,8 @@ export async function listMt5SessionProfiles() {
       activeSessionId: active?.id ?? null,
       storageMode: "mssql" as const,
     };
-  } catch {
+  } catch (error) {
+    logDatabaseFallback("list profiles", error);
     return memoryState();
   }
 }
@@ -106,7 +107,8 @@ export async function getActiveMt5SessionProfile() {
     `);
 
     return result.recordset[0] ? fromDbRow(result.recordset[0]) : null;
-  } catch {
+  } catch (error) {
+    logDatabaseFallback("get active profile", error);
     return memoryActiveProfile();
   }
 }
@@ -191,7 +193,8 @@ export async function upsertMt5SessionProfile(input: Mt5SessionProfileCreate) {
     }
 
     return listMt5SessionProfiles();
-  } catch {
+  } catch (error) {
+    logDatabaseFallback("save profile", error);
     return upsertInMemory(input);
   }
 }
@@ -213,7 +216,8 @@ export async function setActiveMt5SessionProfile(profileId: string) {
       WHERE id = @profileId
     `);
     return listMt5SessionProfiles();
-  } catch {
+  } catch (error) {
+    logDatabaseFallback("activate profile", error);
     store.activeSessionId = profileId;
     syncActiveFlags();
     return memoryState();
@@ -238,7 +242,8 @@ export async function deleteMt5SessionProfile(profileId: string) {
       WHERE id = @profileId
     `);
     return listMt5SessionProfiles();
-  } catch {
+  } catch (error) {
+    logDatabaseFallback("delete profile", error);
     store.profiles = store.profiles.filter((profile) => profile.id !== profileId);
     if (store.activeSessionId === profileId) {
       store.activeSessionId = null;
@@ -300,10 +305,12 @@ async function ensureSchema() {
         IF COL_LENGTH('dbo.mt5_session_profiles', 'terminal_id') IS NULL
         BEGIN
           ALTER TABLE dbo.mt5_session_profiles ADD terminal_id NVARCHAR(120) NULL;
-          UPDATE dbo.mt5_session_profiles
-          SET terminal_id = ISNULL(terminal_id, CONCAT('terminal-', ABS(CHECKSUM(ISNULL(terminal_path, id)))))
-          WHERE terminal_id IS NULL;
-          ALTER TABLE dbo.mt5_session_profiles ALTER COLUMN terminal_id NVARCHAR(120) NOT NULL;
+          EXEC(N'
+            UPDATE dbo.mt5_session_profiles
+            SET terminal_id = ISNULL(terminal_id, CONCAT(''terminal-'', ABS(CHECKSUM(ISNULL(terminal_path, id)))))
+            WHERE terminal_id IS NULL;
+          ');
+          EXEC(N'ALTER TABLE dbo.mt5_session_profiles ALTER COLUMN terminal_id NVARCHAR(120) NOT NULL;');
         END
 
         IF COL_LENGTH('dbo.mt5_session_profiles', 'account_type') IS NULL
@@ -395,4 +402,8 @@ function memoryState() {
 function memoryActiveProfile() {
   if (!store.activeSessionId) return null;
   return store.profiles.find((profile) => profile.id === store.activeSessionId) ?? null;
+}
+
+function logDatabaseFallback(operation: string, error: unknown) {
+  console.error(`[mt5-session-store] Unable to ${operation}; using memory fallback.`, error);
 }

@@ -5,6 +5,8 @@ type GlobalSqlState = typeof globalThis & {
 };
 
 const globalSqlState = globalThis as GlobalSqlState;
+const connectionTimeout = readTimeout("DB_CONNECTION_TIMEOUT_MS", 5000);
+const requestTimeout = readTimeout("DB_REQUEST_TIMEOUT_MS", 10000);
 
 export function isDatabaseConfigured() {
   return Boolean(process.env.DB_HOST && process.env.DB_NAME && process.env.DB_USER);
@@ -22,6 +24,8 @@ export async function getSqlPool() {
       database: process.env.DB_NAME!,
       user: process.env.DB_USER!,
       password: process.env.DB_PASSWORD ?? "",
+      connectionTimeout,
+      requestTimeout,
       options: {
         encrypt: (process.env.DB_ENCRYPT ?? "true") !== "false",
         trustServerCertificate: (process.env.DB_TRUST_SERVER_CERTIFICATE ?? "true") !== "false",
@@ -40,4 +44,9 @@ export async function getSqlPool() {
   }
 
   return globalSqlState.__goldmineSqlPoolPromise;
+}
+
+function readTimeout(name: string, fallback: number) {
+  const configured = Number(process.env[name]);
+  return Number.isFinite(configured) && configured > 0 ? configured : fallback;
 }

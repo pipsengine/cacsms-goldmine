@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["mssql"],
   async headers() {
     if (process.env.NODE_ENV !== "development") return [];
 

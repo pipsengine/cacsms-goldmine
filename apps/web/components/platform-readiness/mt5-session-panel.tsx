@@ -10,6 +10,8 @@ import type {
 } from "@/types/connectivity";
 import styles from "./mt5-session-panel.module.css";
 
+const REQUEST_TIMEOUT_MS = 45000;
+
 const initialForm: Mt5SessionProfileCreate = {
   tenantId: "",
   userId: "",
@@ -43,7 +45,7 @@ export function Mt5SessionPanel({
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch("/api/platform-readiness/connect/debug", { cache: "no-store", headers: { Accept: "application/json" } });
+      const response = await fetchWithTimeout("/api/platform-readiness/connect/debug", { cache: "no-store", headers: { Accept: "application/json" } });
       if (!response.ok) throw new Error(`MT5 session panel failed with ${response.status}`);
       const payload = (await response.json()) as ConnectivityDebugResponse;
       setDebugData(payload);
@@ -68,7 +70,7 @@ export function Mt5SessionPanel({
         throw new Error("Select a terminal and broker server before saving the session.");
       }
 
-      const response = await fetch("/api/platform-readiness/connect/mt5-sessions", {
+      const response = await fetchWithTimeout("/api/platform-readiness/connect/mt5-sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
@@ -105,7 +107,7 @@ export function Mt5SessionPanel({
 
   async function activateProfile(profileId: string) {
     try {
-      const response = await fetch("/api/platform-readiness/connect/mt5-sessions", {
+      const response = await fetchWithTimeout("/api/platform-readiness/connect/mt5-sessions", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ profileId }),
@@ -294,6 +296,22 @@ export function Mt5SessionPanel({
       ) : null}
     </section>
   );
+}
+
+async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("The MT5 session request timed out. Check the database connection and try again.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 function ProfileRow({
