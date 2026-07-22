@@ -67,11 +67,11 @@ export async function listMt5SessionProfiles() {
       ORDER BY updated_at DESC
     `);
 
-    const profiles = result.recordset.map((row: Mt5SessionRow) => fromDbRow(row));
-    const active = profiles.find((profile: Mt5SessionProfileSecret) => profile.active) ?? null;
+    const profiles = result.recordset.map((row: Mt5SessionRow) => fromDbSummary(row));
+    const active = profiles.find((profile) => profile.active) ?? null;
 
     return {
-      profiles: profiles.map(toSummary),
+      profiles,
       activeSessionId: active?.id ?? null,
       storageMode: "mssql" as const,
     };
@@ -166,6 +166,8 @@ export async function upsertMt5SessionProfile(input: Mt5SessionProfileCreate) {
       .input("encryptedPassword", sql.NVarChar(sql.MAX), encryptedPassword)
       .input("isActive", sql.Bit, input.activate);
 
+    const updatedAt = new Date().toISOString();
+
     if (existing.recordset[0]) {
       await request.query(`
         UPDATE dbo.mt5_session_profiles
@@ -192,7 +194,26 @@ export async function upsertMt5SessionProfile(input: Mt5SessionProfileCreate) {
       `);
     }
 
-    return listMt5SessionProfiles();
+    return {
+      profiles: [
+        {
+          id: profileId,
+          tenantId,
+          userId,
+          terminalId,
+          label,
+          terminalPath,
+          login,
+          server,
+          accountType,
+          hasPassword: Boolean(input.password.trim()),
+          active: Boolean(input.activate),
+          lastUpdatedAt: updatedAt,
+        },
+      ],
+      activeSessionId: input.activate ? profileId : null,
+      storageMode: "mssql" as const,
+    };
   } catch (error) {
     logDatabaseFallback("save profile", error);
     return upsertInMemory(input);
@@ -340,6 +361,23 @@ function fromDbRow(row: Mt5SessionRow): Mt5SessionProfileSecret {
     accountType: row.account_type ?? "Demo",
     hasPassword: Boolean(row.encrypted_password),
     password: decryptSecret(row.encrypted_password),
+    active: Boolean(row.is_active),
+    lastUpdatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function fromDbSummary(row: Mt5SessionRow): Mt5SessionProfileSummary {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    userId: row.user_id,
+    terminalId: row.terminal_id || getMt5TerminalId(row.terminal_path ?? row.id),
+    label: row.label,
+    terminalPath: row.terminal_path,
+    login: row.login,
+    server: row.server_name,
+    accountType: row.account_type ?? "Demo",
+    hasPassword: Boolean(row.encrypted_password),
     active: Boolean(row.is_active),
     lastUpdatedAt: new Date(row.updated_at).toISOString(),
   };

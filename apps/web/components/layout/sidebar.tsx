@@ -33,7 +33,7 @@ import { navigationStatusIndicators } from "@/config/navigation-status";
 import type { NavigationItem } from "@/config/navigation";
 import { SidebarItem } from "./sidebar-item";
 
-const storageKey = "gold-trader-expanded-navigation";
+const storageKey = "cacsms-goldmine-expanded-navigation";
 
 export function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose: () => void }) {
   const pathname = usePathname();
@@ -168,10 +168,10 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose:
     <aside className={`sidebar ${compact ? "compact" : ""} ${mobileOpen ? "open" : ""}`}>
       <div className="sidebar-header">
         <div className="brand">
-          <div className="logo-mark">GT</div>
+          <div className="logo-mark">CG</div>
           <div className="brand-copy">
-            <strong>Gold Trader</strong>
-            <span>Autonomous XAUUSD Control</span>
+            <strong>CACSMS Goldmine</strong>
+            <span>Autonomous Trading Control</span>
             <span className="environment-badge">Demo</span>
           </div>
         </div>

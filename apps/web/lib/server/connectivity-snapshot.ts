@@ -1,5 +1,5 @@
 import { getLifecycleRuntime } from "@/lib/server/lifecycle-control";
-import { getMt5LocalBridgeSnapshot } from "@/lib/server/mt5-local-bridge";
+import { getCachedMt5LocalBridgeSnapshot } from "@/lib/server/mt5-local-bridge";
 import type {
   BrokerConnectivity,
   ConnectivityAlert,
@@ -10,7 +10,8 @@ import type {
   MarketDataConnectivity,
 } from "@/types/connectivity";
 
-const AUTO_REFRESH_MS = 5000;
+const AUTO_REFRESH_MS = 1000;
+const CONNECTIVITY_CACHE_MS = 750;
 type ConnectivityCache = { value: ConnectivitySnapshot | null; pending: Promise<ConnectivitySnapshot> | null; expiresAt: number };
 const connectivityGlobal = globalThis as typeof globalThis & { __connectivitySnapshotCache?: ConnectivityCache };
 const connectivityCache = connectivityGlobal.__connectivitySnapshotCache ?? { value: null, pending: null, expiresAt: 0 };
@@ -76,12 +77,26 @@ function overallStatus(services: ConnectivityService[]): ConnectivityStatus {
 
 export async function getConnectivitySnapshot(reconnectAttempt = 0): Promise<ConnectivitySnapshot> {
   if (connectivityCache.value && connectivityCache.expiresAt > Date.now()) return connectivityCache.value;
+  if (connectivityCache.value) {
+    if (!connectivityCache.pending) {
+      connectivityCache.pending = buildConnectivitySnapshot(reconnectAttempt)
+        .then((snapshot) => {
+          connectivityCache.value = snapshot;
+          connectivityCache.expiresAt = Date.now() + CONNECTIVITY_CACHE_MS;
+          return snapshot;
+        })
+        .finally(() => {
+          connectivityCache.pending = null;
+        });
+    }
+    return connectivityCache.value;
+  }
   if (connectivityCache.pending) return connectivityCache.pending;
   connectivityCache.pending = buildConnectivitySnapshot(reconnectAttempt);
   try {
     const snapshot = await connectivityCache.pending;
     connectivityCache.value = snapshot;
-    connectivityCache.expiresAt = Date.now() + 4500;
+    connectivityCache.expiresAt = Date.now() + CONNECTIVITY_CACHE_MS;
     return snapshot;
   } finally {
     connectivityCache.pending = null;
@@ -94,7 +109,7 @@ async function buildConnectivitySnapshot(reconnectAttempt = 0): Promise<Connecti
   const runtime = getLifecycleRuntime();
   const lifecycleRunning = runtime.status === "running";
   const websocketEndpoint = process.env.NEXT_PUBLIC_CONNECT_WS_URL ?? null;
-  const localMt5 = await getMt5LocalBridgeSnapshot();
+  const localMt5 = getCachedMt5LocalBridgeSnapshot();
 
   const services: ConnectivityService[] = [
     service("mt5-bridge", "MT5 Bridge", "broker", process.env.MT5_BRIDGE_URL, lifecycleRunning, tickSeed + 3),

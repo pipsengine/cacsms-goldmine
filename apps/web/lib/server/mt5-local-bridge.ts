@@ -9,9 +9,10 @@ import { getActiveMt5SessionProfile } from "@/lib/server/mt5-session-store";
 const execFileAsync = promisify(execFile);
 const SYMBOL = process.env.GOLD_SYMBOL ?? "XAUUSD";
 const PYTHON_LAUNCHER = process.env.MT5_PYTHON_LAUNCHER ?? "py";
-const SCRIPT_TIMEOUT_MS = 4000;
-const SUCCESS_CACHE_MS = 5000;
-const ERROR_CACHE_MS = 5000;
+const SCRIPT_TIMEOUT_MS = 1000;
+const SUCCESS_CACHE_MS = 1000;
+const ERROR_CACHE_MS = 1500;
+const MAX_AUTO_DETECTED_PROBES = 2;
 const currentFilePath = fileURLToPath(import.meta.url);
 const scriptPath = path.resolve(path.dirname(currentFilePath), "..", "..", "scripts", "mt5-terminal-probe.py");
 
@@ -72,6 +73,20 @@ globalBridgeCache.__mt5LocalBridgeCache = cache;
 export async function getMt5LocalBridgeSnapshot() {
   const now = Date.now();
   if (cache.value && cache.expiresAt > now) return cache.value;
+  if (cache.value) {
+    if (!cache.pending) {
+      cache.pending = loadMt5LocalBridgeSnapshot()
+        .then((result) => {
+          cache.value = result;
+          cache.expiresAt = Date.now() + (result?.ok ? SUCCESS_CACHE_MS : ERROR_CACHE_MS);
+          return result;
+        })
+        .finally(() => {
+          cache.pending = null;
+        });
+    }
+    return cache.value;
+  }
   if (cache.pending) return cache.pending;
 
   cache.pending = loadMt5LocalBridgeSnapshot();
@@ -86,6 +101,10 @@ export async function getMt5LocalBridgeSnapshot() {
   }
 }
 
+export function getCachedMt5LocalBridgeSnapshot() {
+  return cache.value;
+}
+
 export function invalidateMt5LocalBridgeCache() {
   cache.value = null;
   cache.expiresAt = 0;
@@ -98,11 +117,11 @@ export function getMt5TerminalId(terminalPath: string) {
 
 async function loadMt5LocalBridgeSnapshot(): Promise<Mt5LocalBridgeSnapshot | null> {
   const activeProfile = await getActiveMt5SessionProfile();
-  const terminalCandidates = [
+  const terminalCandidates = Array.from(new Set([
     ...(activeProfile?.terminalPath ? [activeProfile.terminalPath] : []),
     ...(process.env.MT5_TERMINAL_PATH ? [process.env.MT5_TERMINAL_PATH] : []),
-    ...detectMt5TerminalCandidates(),
-  ];
+    ...detectMt5TerminalCandidates().slice(0, MAX_AUTO_DETECTED_PROBES),
+  ]));
 
   if (!terminalCandidates.length) {
     return bridgeError("No local MT5 terminal executable was detected. Set MT5_TERMINAL_PATH to a terminal64.exe path.");

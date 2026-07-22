@@ -87,6 +87,7 @@ export default function LifecycleCommandCentreView() {
   const [selectedStageKey, setSelectedStageKey] = useState(lifecycleSnapshot.currentStageKey);
   const [liveConnection, setLiveConnection] = useState<"connected" | "reconnecting">("reconnecting");
   const mounted = useRef(true);
+  const userSelectedStage = useRef(false);
 
   useEffect(() => {
     mounted.current = true;
@@ -99,7 +100,12 @@ export default function LifecycleCommandCentreView() {
     const applySnapshot = (next: LifecycleSnapshot) => {
       if (!mounted.current) return;
       setSnapshot(next);
-      setSelectedStageKey((current) => (next.stages.some((stage) => stage.key === current) ? current : next.currentStageKey));
+      setSelectedStageKey((current) => {
+        if (!userSelectedStage.current) {
+          return next.currentStageKey;
+        }
+        return next.stages.some((stage) => stage.key === current) ? current : next.currentStageKey;
+      });
     };
 
     const refresh = async () => {
@@ -163,6 +169,9 @@ export default function LifecycleCommandCentreView() {
     snapshot.stages.find((stage) => stage.key === selectedStageKey) ??
     snapshot.stages.find((stage) => stage.key === snapshot.currentStageKey) ??
     snapshot.stages[0];
+  const currentStage =
+    snapshot.stages.find((stage) => stage.key === snapshot.currentStageKey) ??
+    selectedStage;
 
   const groups = useMemo(() => Array.from(new Set(snapshot.stages.map((stage) => stage.group))), [snapshot.stages]);
 
@@ -224,7 +233,10 @@ export default function LifecycleCommandCentreView() {
                   key={stage.key}
                   type="button"
                   className={`${styles.stageButton} ${styles[`stage_${stage.status.replace("-", "_")}`]} ${selected ? styles.stageSelected : ""}`}
-                  onClick={() => setSelectedStageKey(stage.key)}
+                  onClick={() => {
+                    userSelectedStage.current = true;
+                    setSelectedStageKey(stage.key);
+                  }}
                   aria-pressed={selected}
                 >
                   <span className={styles.stageNumber}>{stage.id}</span>
@@ -242,7 +254,7 @@ export default function LifecycleCommandCentreView() {
 
         <div className={styles.lifecycleFooter}>
           <span>
-            Current Stage: <strong>{selectedStage.name}</strong> - {selectedStage.summary}
+            Current Stage: <strong>{currentStage.name}</strong> - {currentStage.summary}
           </span>
           <div className={styles.progressBar}><i style={{ width: `${snapshot.progress}%` }} /></div>
           <b>{snapshot.progress}%</b>

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { StartPage } from "@/components/platform-readiness/start-page";
 
 export const metadata: Metadata = {
-  title: "Start | Gold Trader",
+  title: "Start | CACSMS Goldmine",
 };
 
 export default function Page() {

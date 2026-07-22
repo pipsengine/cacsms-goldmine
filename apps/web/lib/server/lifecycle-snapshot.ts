@@ -7,13 +7,29 @@ import type { LifecycleSnapshot, LifecycleStatus } from "@/types/lifecycle";
 export async function getControlledLifecycleSnapshot(): Promise<LifecycleSnapshot> {
   const [connectivity, mt5] = await Promise.all([getConnectivitySnapshot(), getMt5LocalBridgeSnapshot()]);
   const runtime = getLifecycleRuntime();
-  const currentStageKey = runtime.currentStage;
-  const progress = runtime.status === "running" ? 6 : 0;
+  const currentStageKey = resolveCurrentStageKey(runtime.status, runtime.currentStage);
   const now = new Date();
   const riskExposure = mt5?.equity && mt5.margin !== null ? Math.round((mt5.margin / mt5.equity) * 100) : 0;
   const equity = mt5?.equity ?? null;
   const positions = mt5?.positionsTotal ?? null;
   const health = connectivity.readinessScore;
+  const stages = lifecycleSnapshot.stages.map((stage) => {
+    const status = stageStatus(stage.key, runtime.status, currentStageKey);
+    const active = stage.key === currentStageKey;
+    const completed = status === "completed";
+    return {
+      ...stage,
+      status,
+      progress: completed ? 100 : active && runtime.status === "running" ? 6 : 0,
+      readiness: completed ? 100 : active && runtime.status === "running" ? 6 : 0,
+      startedAt: active ? new Date(runtime.requestedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : undefined,
+      elapsed: undefined,
+      estimatedCompletion: undefined,
+      pages: stage.pages.map((page) => ({ ...page, status: pageStatus(stage.key, status, page.status) })),
+    };
+  });
+  const completedStages = stages.filter((stage) => stage.status === "completed").length;
+  const progress = runtime.status === "running" ? Math.round((completedStages / stages.length) * 100) : 0;
 
   return {
     ...lifecycleSnapshot,
@@ -39,21 +55,7 @@ export async function getControlledLifecycleSnapshot(): Promise<LifecycleSnapsho
       if (kpi.label === "System Health") return { ...kpi, value: `${health}%`, helper: `${titleCase(connectivity.overallStatus)} · ${connectivity.services.filter((service) => service.status === "online").length}/${connectivity.services.length} services online`, tone: connectivity.overallStatus === "online" ? "green" as const : "orange" as const, trend: Array(7).fill(health) };
       return kpi;
     }),
-    stages: lifecycleSnapshot.stages.map((stage) => {
-      const status = stageStatus(stage.key, runtime.status, currentStageKey);
-      const active = stage.key === currentStageKey;
-      const completed = status === "completed";
-      return {
-        ...stage,
-        status,
-        progress: completed ? 100 : active && runtime.status === "running" ? 6 : 0,
-        readiness: completed ? 100 : active && runtime.status === "running" ? 6 : 0,
-        startedAt: active ? new Date(runtime.requestedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : undefined,
-        elapsed: undefined,
-        estimatedCompletion: undefined,
-        pages: stage.pages.map((page) => ({ ...page, status: pageStatus(stage.key, status, page.status) })),
-      };
-    }),
+    stages,
     activity: [
       {
         id: `lifecycle-command-${runtime.commandSequence}`,
@@ -87,13 +89,25 @@ function titleCase(value: string) {
   return value.replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function resolveCurrentStageKey(runtimeStatus: string, runtimeStageKey: string) {
+  if (runtimeStatus !== "running") return runtimeStageKey;
+  if (runtimeStageKey === "initialize" && stagePagesComplete("initialize")) return "connect";
+  return runtimeStageKey;
+}
+
+function stagePagesComplete(stageKey: string) {
+  return lifecycleSnapshot.stages.find((stage) => stage.key === stageKey)?.pages.every((page) => page.status === "completed") ?? false;
+}
+
 function stageStatus(key: string, runtimeStatus: string, currentStageKey: string): LifecycleStatus {
   if (runtimeStatus === "stopped") return key === "stop" ? "completed" : "not-started";
   if (runtimeStatus === "held" || runtimeStatus === "starting") return key === "start" ? "blocked" : "pending";
   if (runtimeStatus === "error") return key === currentStageKey ? "failed" : "pending";
   if (runtimeStatus === "stopping") return key === "stop" ? "in-progress" : "pending";
-  if (key === "start") return "completed";
-  if (key === "initialize") return "in-progress";
+  const currentIndex = lifecycleSnapshot.stages.findIndex((stage) => stage.key === currentStageKey);
+  const stageIndex = lifecycleSnapshot.stages.findIndex((stage) => stage.key === key);
+  if (stageIndex >= 0 && currentIndex >= 0 && stageIndex < currentIndex) return "completed";
+  if (key === currentStageKey) return "in-progress";
   return "pending";
 }
 

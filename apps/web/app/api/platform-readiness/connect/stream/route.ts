@@ -35,7 +35,7 @@ export async function GET(request: Request) {
 
         timer = setTimeout(() => {
           void send();
-        }, 5000);
+        }, 1000);
       };
 
       controller.enqueue(encoder.encode("retry: 3000\n\n"));

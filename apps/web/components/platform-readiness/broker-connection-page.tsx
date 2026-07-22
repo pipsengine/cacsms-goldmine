@@ -57,6 +57,7 @@ export function BrokerConnectionPage() {
   const [lastError, setLastError] = useState<string | null>(null);
   const fallbackTimer = useRef<number | undefined>(undefined);
   const reconnectCount = useRef(0);
+  const latestRefreshMs = useRef(1000);
 
   const refreshSnapshot = useCallback(async () => {
     try {
@@ -67,6 +68,7 @@ export function BrokerConnectionPage() {
       if (!response.ok) throw new Error(`Broker connection snapshot failed with ${response.status}`);
       const payload = await response.json() as ConnectivitySnapshotResponse;
       setSnapshot(payload.snapshot);
+      latestRefreshMs.current = payload.snapshot.autoRefreshMs;
       setLastError(null);
       return payload.snapshot;
     } catch (error) {
@@ -98,7 +100,9 @@ export function BrokerConnectionPage() {
       if (closed) return;
       reconnectCount.current = 0;
       stopFallbackPolling();
-      setSnapshot(JSON.parse((event as MessageEvent).data) as ConnectivitySnapshot);
+      const payload = JSON.parse((event as MessageEvent).data) as ConnectivitySnapshot;
+      latestRefreshMs.current = payload.autoRefreshMs;
+      setSnapshot(payload);
       setStreamMode("live");
       setLastError(null);
     });
@@ -109,7 +113,7 @@ export function BrokerConnectionPage() {
       setStreamMode(reconnectCount.current > 2 ? "polling" : "reconnecting");
       setLastError("Broker realtime stream interrupted; autonomous polling fallback is active.");
       if (!fallbackTimer.current) {
-        fallbackTimer.current = window.setInterval(refreshSnapshot, 6000);
+        fallbackTimer.current = window.setInterval(refreshSnapshot, Math.max(1000, latestRefreshMs.current));
       }
     });
 

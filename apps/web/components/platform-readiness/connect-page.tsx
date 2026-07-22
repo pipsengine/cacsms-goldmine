@@ -49,6 +49,7 @@ export function ConnectPage() {
   const [websocketState, setWebsocketState] = useState<ConnectivityStatus | null>(null);
   const reconnects = useRef(0);
   const websocketRetry = useRef<number | undefined>(undefined);
+  const latestRefreshMs = useRef(1000);
 
   const refreshSnapshot = useCallback(async () => {
     try {
@@ -59,6 +60,7 @@ export function ConnectPage() {
       if (!response.ok) throw new Error(`Connectivity API returned ${response.status}`);
       const payload = await response.json() as ConnectivitySnapshotResponse;
       setSnapshot(payload.snapshot);
+      latestRefreshMs.current = payload.snapshot.autoRefreshMs;
       setLastError(null);
       return payload.snapshot;
     } catch (error) {
@@ -91,7 +93,9 @@ export function ConnectPage() {
       if (closed) return;
       reconnects.current = 0;
       stopFallbackPolling();
-      setSnapshot(JSON.parse((event as MessageEvent).data) as ConnectivitySnapshot);
+      const payload = JSON.parse((event as MessageEvent).data) as ConnectivitySnapshot;
+      latestRefreshMs.current = payload.autoRefreshMs;
+      setSnapshot(payload);
       setStreamState("live");
       setLastError(null);
     });
@@ -102,7 +106,7 @@ export function ConnectPage() {
       setStreamState(reconnects.current > 2 ? "fallback" : "reconnecting");
       setLastError("Realtime stream interrupted; autonomous polling fallback is active.");
       if (!fallbackTimer) {
-        fallbackTimer = window.setInterval(refreshSnapshot, 7000);
+        fallbackTimer = window.setInterval(refreshSnapshot, Math.max(1000, latestRefreshMs.current));
       }
     });
 
@@ -136,11 +140,11 @@ export function ConnectPage() {
         socket.onclose = () => {
           if (closed) return;
           setWebsocketState("degraded");
-          websocketRetry.current = window.setTimeout(connect, 5000);
+          websocketRetry.current = window.setTimeout(connect, 1000);
         };
       } catch {
         setWebsocketState("degraded");
-        websocketRetry.current = window.setTimeout(connect, 5000);
+        websocketRetry.current = window.setTimeout(connect, 1000);
       }
     };
 

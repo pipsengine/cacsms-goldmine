@@ -1,5 +1,5 @@
 export const environment = {
-  appName: "Gold Trader",
+  appName: "CACSMS Goldmine",
   marketSymbol: "XAUUSD",
   productionDatabaseRequired: true,
   realtimeServicesRequired: true,

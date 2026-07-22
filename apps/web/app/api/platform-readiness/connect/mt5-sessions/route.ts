@@ -1,5 +1,6 @@
-import { invalidateMt5LocalBridgeCache } from "@/lib/server/mt5-local-bridge";
+import { detectMt5TerminalCandidates, invalidateMt5LocalBridgeCache } from "@/lib/server/mt5-local-bridge";
 import { deleteMt5SessionProfile, setActiveMt5SessionProfile, upsertMt5SessionProfile, listMt5SessionProfiles } from "@/lib/server/mt5-session-store";
+import { invalidateMt5TerminalCatalog } from "@/lib/server/mt5-terminal-catalog";
 import type { Mt5SessionMutationResponse, Mt5SessionProfileCreate, Mt5SessionProfilesResponse } from "@/types/connectivity";
 
 export const dynamic = "force-dynamic";
@@ -31,8 +32,23 @@ export async function POST(request: Request) {
     );
   }
 
+  const requestedLogin = body.login?.trim() ?? "";
+  const detectedTerminalPaths = detectMt5TerminalCandidates();
+  const terminalDetected = detectedTerminalPaths.some((terminalPath) => terminalPath === body.terminalPath);
+  if (!terminalDetected) {
+    return Response.json({ error: "Selected broker terminal was not detected on this machine." }, { status: 400 });
+  }
+
+  if (!requestedLogin) {
+    return Response.json(
+      { error: "Select a numeric MT5 trading account ID for the selected broker terminal." },
+      { status: 400 },
+    );
+  }
+
   const response: Mt5SessionMutationResponse = await upsertMt5SessionProfile(body);
   invalidateMt5LocalBridgeCache();
+  invalidateMt5TerminalCatalog();
   return Response.json(response, { headers: { "Cache-Control": "no-store" } });
 }
 
@@ -45,6 +61,7 @@ export async function PATCH(request: Request) {
 
   const response: Mt5SessionMutationResponse = await setActiveMt5SessionProfile(body.profileId.trim());
   invalidateMt5LocalBridgeCache();
+  invalidateMt5TerminalCatalog();
   return Response.json(response, { headers: { "Cache-Control": "no-store" } });
 }
 
@@ -57,5 +74,6 @@ export async function DELETE(request: Request) {
 
   const response: Mt5SessionMutationResponse = await deleteMt5SessionProfile(body.profileId.trim());
   invalidateMt5LocalBridgeCache();
+  invalidateMt5TerminalCatalog();
   return Response.json(response, { headers: { "Cache-Control": "no-store" } });
 }

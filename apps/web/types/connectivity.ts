@@ -185,6 +185,7 @@ export type Mt5TerminalCatalogItem = {
   brokerName: string | null;
   detectedServer: string | null;
   serverOptions: string[];
+  accountOptions: string[];
 };
 
 export type Mt5SessionProfilesResponse = {

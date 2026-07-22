@@ -10,7 +10,8 @@ import type {
 } from "@/types/connectivity";
 import styles from "./mt5-session-panel.module.css";
 
-const REQUEST_TIMEOUT_MS = 45000;
+const REQUEST_TIMEOUT_MS = 12000;
+const SAVE_REQUEST_TIMEOUT_MS = 60000;
 const AUTO_REFRESH_MS = 5000;
 
 const initialForm: Mt5SessionProfileCreate = {
@@ -65,11 +66,12 @@ export function Mt5SessionPanel({
   useEffect(() => {
     void refresh();
     const timer = window.setInterval(() => {
+      if (modalOpen || submitting) return;
       void refresh();
     }, AUTO_REFRESH_MS);
 
     return () => window.clearInterval(timer);
-  }, [refresh]);
+  }, [modalOpen, refresh, submitting]);
 
   async function submitProfile() {
     setSubmitting(true);
@@ -80,23 +82,33 @@ export function Mt5SessionPanel({
         throw new Error("Select a terminal and broker server before saving the session.");
       }
 
-      if (formState.login?.trim() && !/^\d+$/.test(formState.login.trim())) {
-        throw new Error("Enter the numeric MT5 trading account ID shown in the terminal, not an email address.");
+      const selectedLogin = formState.login?.trim() ?? "";
+
+      if (!selectedLogin || !availableAccounts.includes(selectedLogin)) {
+        throw new Error("Select a detected numeric MT5 trading account ID for this broker terminal.");
       }
 
-      const response = await fetchWithTimeout("/api/platform-readiness/connect/mt5-sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({
-          ...formState,
-          tenantId: generatedTenantId,
-          userId: generatedUserId,
-          terminalId: generatedTerminalId,
-          terminalPath: selectedTerminalPath,
-          login: formState.login || null,
-          server: formState.server || null,
-        }),
-      });
+      if (!/^\d+$/.test(selectedLogin)) {
+        throw new Error("The selected MT5 trading account ID must be numeric.");
+      }
+
+      const response = await fetchWithTimeout(
+        "/api/platform-readiness/connect/mt5-sessions",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({
+            ...formState,
+            tenantId: generatedTenantId,
+            userId: generatedUserId,
+            terminalId: generatedTerminalId,
+            terminalPath: selectedTerminalPath,
+            login: selectedLogin,
+            server: formState.server || null,
+          }),
+        },
+        SAVE_REQUEST_TIMEOUT_MS,
+      );
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -152,6 +164,10 @@ export function Mt5SessionPanel({
     () => (selectedTerminal ? selectedTerminal.serverOptions : []),
     [selectedTerminal],
   );
+  const availableAccounts = useMemo(
+    () => (selectedTerminal ? selectedTerminal.accountOptions : []),
+    [selectedTerminal],
+  );
 
   useEffect(() => {
     if (!modalOpen) return;
@@ -160,6 +176,7 @@ export function Mt5SessionPanel({
         ...current,
         terminalPath: detectedTerminals[0].terminalPath,
         server: detectedTerminals[0].serverOptions[0] ?? "",
+        login: detectedTerminals[0].accountOptions[0] ?? "",
       }));
     }
   }, [detectedTerminals, formState.terminalPath, modalOpen]);
@@ -172,8 +189,9 @@ export function Mt5SessionPanel({
       userId: generatedUserId,
       tenantId: generatedTenantId,
       server: availableServers.includes(current.server ?? "") ? current.server : availableServers[0] ?? "",
+      login: availableAccounts.includes(current.login ?? "") ? current.login : availableAccounts[0] ?? "",
     }));
-  }, [availableServers, generatedTerminalId, generatedTenantId, generatedUserId, modalOpen]);
+  }, [availableAccounts, availableServers, generatedTerminalId, generatedTenantId, generatedUserId, modalOpen]);
 
   return (
     <section className={`${styles.panel} ${compact ? styles.compact : ""}`}>
@@ -253,7 +271,7 @@ export function Mt5SessionPanel({
                 <span>Terminal Path</span>
                 <select
                   value={selectedTerminalPath ?? ""}
-                  onChange={(event) => setFormState((current) => ({ ...current, terminalPath: event.target.value || null }))}
+                  onChange={(event) => setFormState((current) => ({ ...current, terminalPath: event.target.value || null, login: "", server: "" }))}
                 >
                   <option value="">Use auto-detected terminal</option>
                   {detectedTerminals.map((terminal) => (
@@ -273,13 +291,17 @@ export function Mt5SessionPanel({
               </label>
               <label>
                 <span>MT5 Account Login</span>
-                <input
+                <select
                   value={formState.login ?? ""}
                   onChange={(event) => setFormState((current) => ({ ...current, login: event.target.value }))}
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  placeholder="Numeric trading account ID, e.g. 52877052"
-                />
+                >
+                  <option value="">{selectedTerminal ? "Select detected trading account" : "Select terminal first"}</option>
+                  {availableAccounts.map((accountId) => (
+                    <option key={accountId} value={accountId}>
+                      {accountId}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label>
                 <span>Broker Server</span>
@@ -304,10 +326,11 @@ export function Mt5SessionPanel({
             </label>
 
             {formError ? <div className={styles.notice}><AlertTriangle size={14} /><span>{formError}</span></div> : null}
+            {!availableAccounts.length ? <div className={styles.notice}><AlertTriangle size={14} /><span>No numeric MT5 trading account IDs were detected for the selected terminal. Log in to the broker account in MT5, then refresh detected sessions.</span></div> : null}
 
             <div className={styles.modalActions}>
               <button className={styles.secondaryButton} type="button" onClick={() => setModalOpen(false)} disabled={submitting}>Cancel</button>
-              <button className={styles.primaryButton} type="button" onClick={() => void submitProfile()} disabled={submitting}>
+              <button className={styles.primaryButton} type="button" onClick={() => void submitProfile()} disabled={submitting || !availableAccounts.length || !formState.login}>
                 {submitting ? "Saving" : "Save Session"}
               </button>
             </div>
@@ -318,15 +341,15 @@ export function Mt5SessionPanel({
   );
 }
 
-async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit) {
+async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     return await fetch(input, { ...init, signal: controller.signal });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error("The MT5 session request timed out. Check the database connection and try again.");
+      throw new Error("The MT5 session request timed out while the server was busy. The database may still have accepted the write; refresh sessions and try again if it is not listed.");
     }
     throw error;
   } finally {
